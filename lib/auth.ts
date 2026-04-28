@@ -19,9 +19,15 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       clientSecret: process.env.DISCORD_CLIENT_SECRET!,
       authorization: {
         url: "https://discord.com/api/oauth2/authorize",
-        // We don't use email anywhere — users are identified by discordId.
-        // Dropping the scope makes the OAuth consent screen ask for less.
-        params: { scope: "identify guilds guilds.members.read" },
+        // Bare minimum:
+        //   identify              — username + avatar + id
+        //   guilds.members.read   — call /users/@me/guilds/{guild}/member
+        //                           to check the AUTHORIZED_ROLE_ID
+        // We deliberately do NOT request:
+        //   email   — never used
+        //   guilds  — we don't list the user's full server list, just
+        //             check membership in our one guild
+        params: { scope: "identify guilds.members.read" },
       },
     }),
   ],
