@@ -5,7 +5,7 @@ import { TeamsAdmin } from "./TeamsAdmin";
 
 export default async function AdminTeamsPage() {
   await requireAdmin();
-  const [teams, applications, users, priorities] = await Promise.all([
+  const [teams, applications, users, priorities, categories] = await Promise.all([
     prisma.team.findMany({
       orderBy: { createdAt: "asc" },
       include: {
@@ -39,22 +39,39 @@ export default async function AdminTeamsPage() {
       orderBy: { priorityOrder: "asc" },
       select: { priorityOrder: true, displayLabel: true },
     }),
+    prisma.teamCategory.findMany({
+      orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
+      include: { _count: { select: { teams: true } } },
+    }),
   ]);
 
   return (
     <>
       <PageHeader
-        eyebrow="// Admin"
-        title="Equipos"
-        description="Crear equipos, configurar slots, revisar solicitudes, gestionar bans."
+        eyebrow="ADMIN · ESTRUCTURA"
+        title="Equipos."
+        description="Crear categorías y equipos, configurar slots, revisar solicitudes, gestionar bans."
+        stamps={[
+          { label: `▸ ${categories.length} CAT.`, tone: "muted" },
+          { label: `▸ ${teams.length} EQ.`, tone: "muted" },
+        ]}
       />
-      <div className="p-8 space-y-8">
+      <div className="px-7 pb-7 space-y-6">
         <TeamsAdmin
           users={users.map((u) => ({
             id: u.id,
             name: u.nickname ?? u.discordUsername ?? u.id,
           }))}
           priorities={priorities}
+          categories={categories.map((c) => ({
+            id: c.id,
+            name: c.name,
+            description: c.description,
+            color: c.color,
+            logoUrl: c.logoUrl,
+            sortOrder: c.sortOrder,
+            teamCount: c._count.teams,
+          }))}
           teams={teams.map((t) => ({
             id: t.id,
             name: t.name,
@@ -65,6 +82,7 @@ export default async function AdminTeamsPage() {
             allowsMultiMembership: t.allowsMultiMembership,
             minRankPriority: t.minRankPriority,
             teamType: t.teamType,
+            categoryId: t.categoryId,
             slots: t.slots.map((s) => ({
               id: s.id,
               title: s.title,

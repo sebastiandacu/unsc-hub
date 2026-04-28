@@ -317,6 +317,22 @@ model WallReply {
   @@index([threadId, createdAt])
 }
 
+model TeamCategory {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  /// Hex color used for the section header marker + accent line.
+  color       String   @default("#4dd0ff")
+  /// Optional logo (square-ish) shown next to the category name.
+  logoUrl     String?
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+
+  teams Team[]
+
+  @@index([sortOrder])
+}
+
 model Team {
   id                    String   @id @default(cuid())
   name                  String
@@ -328,12 +344,19 @@ model Team {
   allowsMultiMembership Boolean  @default(false)
   minRankPriority       Int?
   teamType              TeamType @default(ORGANIZATIONAL)
+  /// Required at the application layer. Nullable in the DB so dropping a
+  /// category sets teams to null instead of cascading deletes — the UI then
+  /// surfaces them under "Sin categoría" until reassigned.
+  categoryId            String?
   createdAt             DateTime @default(now())
 
-  parentTeam Team?      @relation("TeamHierarchy", fields: [parentTeamId], references: [id])
-  childTeams Team[]     @relation("TeamHierarchy")
+  parentTeam Team?         @relation("TeamHierarchy", fields: [parentTeamId], references: [id])
+  childTeams Team[]        @relation("TeamHierarchy")
+  category   TeamCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
   slots      TeamSlot[]
   bans       TeamBan[]
+
+  @@index([categoryId])
 }
 
 model TeamSlot {

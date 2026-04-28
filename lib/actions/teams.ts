@@ -16,6 +16,9 @@ const teamSchema = z.object({
   allowsMultiMembership: z.boolean().optional(),
   minRankPriority: z.number().int().nullable().optional(),
   teamType: z.enum(["ORGANIZATIONAL", "OPERATIVE"]).optional(),
+  /// Required at the application layer. Null in DB only for legacy teams
+  /// that pre-date the categorization feature.
+  categoryId: z.string().min(1, "Categoría obligatoria."),
 });
 
 export async function createTeam(input: z.infer<typeof teamSchema>) {
@@ -31,6 +34,7 @@ export async function createTeam(input: z.infer<typeof teamSchema>) {
       allowsMultiMembership: !!data.allowsMultiMembership,
       minRankPriority: data.minRankPriority ?? null,
       teamType: data.teamType ?? "ORGANIZATIONAL",
+      categoryId: data.categoryId,
     },
   });
   await prisma.auditLog.create({
@@ -55,6 +59,7 @@ export async function updateTeam(id: string, input: z.infer<typeof teamSchema>) 
       allowsMultiMembership: !!data.allowsMultiMembership,
       minRankPriority: data.minRankPriority ?? null,
       teamType: data.teamType ?? "ORGANIZATIONAL",
+      categoryId: data.categoryId,
     },
   });
   await prisma.auditLog.create({
