@@ -132,15 +132,15 @@ function CategorySection({
           </div>
         )}
         <div className="min-w-0 flex-1">
+          <div
+            className="font-mono text-[10px] tracking-[0.22em] uppercase mb-1"
+            style={{ color }}
+          >
+            // {String(index + 1).padStart(2, "0")}
+          </div>
           <div className="flex items-center gap-3 flex-wrap">
-            <span
-              className="font-mono text-[10px] tracking-[0.22em] uppercase"
-              style={{ color }}
-            >
-              // {String(index + 1).padStart(2, "0")}
-            </span>
             <h2
-              className="m-0 uppercase truncate"
+              className="m-0 uppercase"
               style={{
                 fontFamily: "var(--font-display)",
                 fontWeight: 700,
