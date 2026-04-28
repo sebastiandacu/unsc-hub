@@ -120,7 +120,10 @@ export function AppShell({
             <Link href="/dashboard" className="flex items-center gap-3 group">
               <BrandMark />
               <div className="min-w-0">
-                <div className="text-base tracking-tight uppercase leading-none font-bold" style={{ fontFamily: "var(--font-display)" }}>
+                <div
+                  className="text-base tracking-tight uppercase leading-none font-bold"
+                  style={{ fontFamily: "var(--font-display)", color: "#ffffff" }}
+                >
                   {unit.shortCode}<span className="text-[var(--color-accent)]">/</span>HUB
                 </div>
                 <div className="label-mono mt-1 text-[8.5px]">Terminal Táctico · v0.1</div>
@@ -341,7 +344,7 @@ function FFT() {
 
 function BrandMark() {
   return (
-    <div className="size-11 relative grid place-items-center shrink-0 transition-transform group-hover:rotate-3 group-hover:scale-105 duration-300">
+    <div className="size-8 relative grid place-items-center shrink-0 transition-transform group-hover:rotate-3 group-hover:scale-105 duration-300">
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
         src={unit.logo.mark}

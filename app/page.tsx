@@ -56,12 +56,12 @@ export default function LandingPage() {
 
             <p className="mt-8 max-w-xl text-[var(--color-text-dim)] text-base lg:text-lg leading-relaxed text-pretty">
               <span className="text-[var(--color-accent)] font-mono uppercase tracking-widest text-sm">
-                Containment. Investigation. Concealment.
+                United Nations Space Command.
               </span>
               <br />
               Hub seguro de operaciones para personal autorizado del{" "}
-              {unit.parentAgency}&rsquo;s {unit.name}. Bulletins, intel,
-              roster, schedule — todo en un solo terminal.
+              {unit.parentAgency} &mdash; {unit.name}. Boletines, intel,
+              roster, calendario — todo en un solo terminal.
             </p>
 
             <div className="mt-10 flex flex-wrap items-center gap-3">
