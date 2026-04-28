@@ -9,12 +9,18 @@ export default async function MyProfilePage() {
   const isAdmin = hasPermission(user, "ADMIN");
   const rank = await resolveRank(user.id);
 
-  const [bulletinCount, eventCount, mySlots] = await Promise.all([
+  const [bulletinCount, eventCount, mySlots, activity] = await Promise.all([
     prisma.bulletinPost.count({ where: { authorId: user.id } }),
     prisma.eventRSVP.count({ where: { userId: user.id } }),
     prisma.teamSlot.findMany({
       where: { holderId: user.id },
       include: { team: { select: { name: true, callsign: true } } },
+    }),
+    prisma.auditLog.findMany({
+      where: { actorId: user.id },
+      orderBy: { createdAt: "desc" },
+      take: 8,
+      select: { id: true, action: true, payloadJson: true, createdAt: true, targetType: true },
     }),
   ]);
 
@@ -115,6 +121,45 @@ export default async function MyProfilePage() {
             </div>
           </div>
 
+          {/* === Activity recent === */}
+          <div className="panel-elevated panel-bracket">
+            <div className="px-4 py-3.5 border-b border-[var(--color-border)]">
+              <span className="label-mono-accent">// Actividad Reciente</span>
+            </div>
+            {activity.length === 0 ? (
+              <div className="p-6 text-center font-mono text-xs text-[var(--color-muted)]">
+                — Sin actividad registrada todavía. —
+              </div>
+            ) : (
+              <div>
+                {activity.map((a) => {
+                  const verb = ACTION_VERB[a.action] ?? a.action;
+                  const icon = ACTION_ICON[a.action] ?? "▸";
+                  const payload = a.payloadJson as { name?: string; title?: string } | null;
+                  const detail = payload?.name ?? payload?.title ?? null;
+                  return (
+                    <div
+                      key={a.id}
+                      className="grid items-center gap-3.5 px-4 py-3 border-b border-[var(--color-border)] last:border-b-0"
+                      style={{ gridTemplateColumns: "auto 1fr auto" }}
+                    >
+                      <span
+                        className="w-4 text-center font-mono text-xs"
+                        style={{ color: "var(--color-accent)" }}
+                      >
+                        {icon}
+                      </span>
+                      <span className="text-[13px] text-[var(--color-text-dim)] truncate">
+                        {verb}{detail ? <span className="text-[var(--color-text)]">: {detail}</span> : null}
+                      </span>
+                      <span className="label-mono shrink-0">{relativeAgo(a.createdAt)}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
           <ProfileEditor
             initialNickname={user.nickname ?? ""}
             initialBio={user.bio ?? ""}
@@ -138,6 +183,74 @@ function Row({ k, v }: { k: string; v: React.ReactNode }) {
       </div>
     </div>
   );
+}
+
+const ACTION_VERB: Record<string, string> = {
+  "bulletin.create": "Publicó un boletín",
+  "bulletin.update": "Editó un boletín",
+  "bulletin.delete": "Eliminó un boletín",
+  "bulletin.pin": "Fijó un boletín",
+  "bulletin.unpin": "Desfijó un boletín",
+  "wall.createThread": "Creó un hilo en el muro",
+  "wall.createReply": "Respondió en el muro",
+  "wall.editReply": "Editó una respuesta",
+  "wall.pinThread": "Fijó un hilo",
+  "wall.unpinThread": "Desfijó un hilo",
+  "wall.lockThread": "Bloqueó un hilo",
+  "team.create": "Creó un equipo",
+  "team.update": "Editó un equipo",
+  "team.delete": "Eliminó un equipo",
+  "team.ban": "Banneó de un equipo",
+  "team.unban": "Removió ban de equipo",
+  "teamCategory.create": "Creó una categoría",
+  "teamCategory.update": "Editó una categoría",
+  "teamCategory.delete": "Eliminó una categoría",
+  "slot.create": "Creó un slot",
+  "slot.update": "Editó un slot",
+  "slot.delete": "Eliminó un slot",
+  "slot.join": "Tomó un slot",
+  "slot.leave": "Dejó un slot",
+  "slot.assign": "Asignó un operativo a slot",
+  "slot.kick": "Removió a operativo de slot",
+  "event.create": "Creó una operación",
+  "event.update": "Editó una operación",
+  "event.delete": "Eliminó una operación",
+  "event.announce": "Re-anunció operación a Discord",
+  "event.setOutcome": "Marcó resultado de operación",
+  "application.approve": "Aprobó solicitud",
+  "application.reject": "Rechazó solicitud",
+  "user.setNickname": "Cambió nickname de usuario",
+  "user.setPermission": "Cambió permiso de usuario",
+  "user.ban": "Banneó usuario",
+  "user.unban": "Desbanneó usuario",
+  "user.awardMedal": "Otorgó una medalla",
+  "user.awardPatch": "Otorgó un patch",
+};
+
+const ACTION_ICON: Record<string, string> = {
+  "bulletin.create": "▸",
+  "bulletin.pin": "📌",
+  "wall.createThread": "💬",
+  "wall.createReply": "↩",
+  "team.create": "★",
+  "teamCategory.create": "★",
+  "event.create": "📅",
+  "event.setOutcome": "✓",
+  "application.approve": "✓",
+  "application.reject": "✗",
+  "user.awardMedal": "🏅",
+  "user.awardPatch": "🎖",
+  "slot.join": "▸",
+  "slot.leave": "↩",
+};
+
+function relativeAgo(d: Date): string {
+  const sec = Math.floor((Date.now() - d.getTime()) / 1000);
+  if (sec < 60) return "ahora";
+  if (sec < 3600) return `hace ${Math.floor(sec / 60)}m`;
+  if (sec < 86400) return `hace ${Math.floor(sec / 3600)}h`;
+  if (sec < 604800) return `hace ${Math.floor(sec / 86400)}d`;
+  return d.toLocaleDateString("es-ES", { day: "2-digit", month: "short" });
 }
 
 function Stat({ label, value }: { label: string; value: string }) {
