@@ -157,11 +157,12 @@ function CategorySection({
           </div>
           {description && (
             <p
-              className="mt-1.5 text-[var(--color-text-dim)] truncate"
+              className="mt-1.5 text-[var(--color-text-dim)]"
               style={{
                 fontFamily: "var(--font-mono)",
                 fontSize: 11,
                 letterSpacing: "0.04em",
+                textAlign: "justify",
               }}
             >
               {description}
@@ -226,7 +227,7 @@ function TeamCard({ team: t }: { team: TeamRow }) {
           src={t.logoUrl}
           alt=""
           aria-hidden
-          className="pointer-events-none select-none absolute inset-0 w-full h-full object-contain object-center brightness-[0.45] group-hover:brightness-[0.7] group-hover:scale-105 transition-all duration-700 -z-10"
+          className="pointer-events-none select-none absolute inset-0 w-full h-full object-contain object-center opacity-40 group-hover:opacity-90 group-hover:scale-105 transition-all duration-700"
         />
       )}
 
