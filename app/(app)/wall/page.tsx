@@ -18,11 +18,12 @@ export default async function WallPage() {
   return (
     <>
       <PageHeader
-        eyebrow="// Forum"
-        title="The Wall"
-        description="Hilos de discusión agrupados por categoría. Elige una para empezar."
+        eyebrow="DISCUSIÓN"
+        title="Muro."
+        description="Hilos de discusión agrupados por categoría. Marcá Actionable solo si requiere respuesta operativa."
+        stamps={[{ label: `▸ ${categories.length} CANALES` }]}
       />
-      <div className="p-8 grid sm:grid-cols-2 lg:grid-cols-3 gap-4 reveal-stagger">
+      <div className="px-7 pb-7 grid sm:grid-cols-2 lg:grid-cols-3 gap-4 reveal-stagger">
         {categories.map((c, i) => (
           <Link
             key={c.slug}

@@ -29,42 +29,41 @@ export function RosterGrid({ users }: { users: RosterUser[] }) {
 
   return (
     <div className="space-y-5">
-      <div className="panel p-3 flex flex-wrap items-center gap-3">
-        <div className="flex items-center gap-2 flex-1 min-w-[200px]">
-          <span className="label-mono text-[var(--color-muted)] shrink-0">QUERY</span>
-          <input
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            placeholder="Buscar callsign / @discord..."
-            className="flex-1 bg-[var(--color-base)] border border-[var(--color-border)] px-3 py-1.5 font-mono text-sm focus:outline-none focus:border-[var(--color-accent)]"
-          />
-        </div>
-        <div className="flex items-center gap-1">
+      <div className="flex flex-wrap items-center gap-3">
+        <input
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          placeholder="⌕  buscar callsign / @discord ..."
+          className="input flex-1 max-w-[360px]"
+        />
+        <div className="flex flex-1" />
+        <div className="flex gap-1.5">
           {PERMS.map((p) => (
             <button
               key={p}
               onClick={() => setPerm(p)}
-              className={`label-mono px-2.5 py-1.5 transition-colors ${
-                perm === p
-                  ? "bg-[var(--color-accent)] text-black"
-                  : "text-[var(--color-muted)] hover:text-[var(--color-accent)]"
-              }`}
+              className={`chip ${perm === p ? "chip-active" : ""}`}
             >
               {p}
             </button>
           ))}
         </div>
-        <div className="label-mono text-[var(--color-muted)] shrink-0">
+        <span className="label-mono shrink-0">
           {filtered.length}/{users.length}
-        </div>
+        </span>
       </div>
 
       {filtered.length === 0 ? (
-        <div className="panel p-12 text-center text-[var(--color-muted)] font-mono">
+        <div className="panel-elevated panel-bracket p-12 text-center text-[var(--color-muted)] font-mono">
           — Sin coincidencias —
         </div>
       ) : (
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-5 reveal-stagger">
+        <div
+          className="grid gap-3.5 reveal-stagger"
+          style={{
+            gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))",
+          }}
+        >
           {filtered.map((u, i) => (
             <UserCard key={u.id} u={u} index={i} />
           ))}
@@ -75,31 +74,78 @@ export function RosterGrid({ users }: { users: RosterUser[] }) {
 }
 
 function UserCard({ u, index }: { u: RosterUser; index: number }) {
+  const callsign = u.nickname ?? u.discordUsername ?? "OPERATIVO";
+  const tagColor =
+    u.permission === "ADMIN"
+      ? "var(--color-danger)"
+      : u.permission === "CERTIFICATED"
+        ? "var(--color-amber)"
+        : u.permission === "LICENSED"
+          ? "var(--color-success)"
+          : "var(--color-accent)";
+
   return (
     <Link
       href={`/roster/${u.id}`}
-      className="panel panel-bracket p-3 hover:border-[var(--color-accent)] transition-all group"
+      className="relative aspect-[0.78] bg-[var(--color-base-2)] border border-[var(--color-border)] hover:border-[var(--color-accent)] transition-all duration-300 hover:-translate-y-0.5 flex flex-col overflow-hidden group"
     >
-      <div className="aspect-square bg-[var(--color-base)] border border-[var(--color-border)] grid place-items-center overflow-hidden relative">
+      <span
+        className="absolute top-2 left-2 z-[2] font-mono text-[9px] tracking-[0.18em] uppercase border px-1.5 py-0.5"
+        style={{
+          borderColor: tagColor,
+          color: tagColor,
+          background: "rgba(0,0,0,0.6)",
+        }}
+      >
+        ● {u.permission}
+      </span>
+      <span className="absolute top-2 right-2 z-[2] font-mono text-[9px] tracking-[0.18em] uppercase text-[var(--color-muted)]">
+        #{String(index + 1).padStart(3, "0")}
+      </span>
+
+      <div
+        className="flex-1 relative overflow-hidden"
+        style={{
+          background:
+            "repeating-linear-gradient(135deg, rgba(77,208,255,0.06) 0, rgba(77,208,255,0.06) 4px, transparent 4px, transparent 10px), linear-gradient(180deg, var(--color-panel-2), var(--color-base-2))",
+        }}
+      >
         {u.avatarUrl ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img src={u.avatarUrl} alt="" className="size-full object-cover group-hover:scale-105 transition-transform duration-500" />
+          /* eslint-disable-next-line @next/next/no-img-element */
+          <img
+            src={u.avatarUrl}
+            alt=""
+            className="absolute inset-0 size-full object-cover transition-transform duration-700 group-hover:scale-105"
+          />
         ) : (
-          <span className="font-display text-3xl text-[var(--color-muted)]" style={{ fontFamily: "var(--font-display)" }}>
-            {(u.nickname ?? u.discordUsername ?? "??").slice(0, 2).toUpperCase()}
+          <span
+            className="absolute inset-0 grid place-items-center text-2xl text-[var(--color-muted)]"
+            style={{ fontFamily: "var(--font-display)", fontWeight: 700 }}
+          >
+            {callsign.slice(0, 2).toUpperCase()}
           </span>
         )}
-        <span className="absolute top-1.5 left-1.5 label-mono text-[8.5px] text-[var(--color-accent)] bg-black/60 px-1.5 py-0.5">
-          №{String(index + 1).padStart(3, "0")}
-        </span>
+        <div
+          className="absolute inset-x-0 bottom-0 h-1/2 pointer-events-none"
+          style={{
+            background:
+              "linear-gradient(180deg, transparent 0%, rgba(0,0,0,0.7) 100%)",
+          }}
+        />
       </div>
-      <div className="mt-3 px-1">
-        <div className="font-mono text-sm truncate group-hover:text-[var(--color-accent)] transition-colors">
-          {u.nickname ?? u.discordUsername}
+
+      <div
+        className="px-2.5 py-2 border-t border-[var(--color-border)] bg-[var(--color-base)]"
+        style={{ fontFamily: "var(--font-mono)" }}
+      >
+        <div className="text-[9px] text-[var(--color-muted)] tracking-[0.18em] uppercase">
+          {u.discordUsername ? `@${u.discordUsername}` : u.permission}
         </div>
-        <div className="label-mono mt-1 flex items-center gap-1.5">
-          <span className={`size-1 ${u.permission === "ADMIN" ? "bg-[var(--color-danger)]" : "bg-[var(--color-accent)]"}`} />
-          {u.permission}
+        <div
+          className="text-[13px] font-semibold mt-0.5 truncate uppercase"
+          style={{ fontFamily: "var(--font-display)" }}
+        >
+          &quot;<span style={{ color: "var(--color-accent)" }}>{callsign.toUpperCase()}</span>&quot;
         </div>
       </div>
     </Link>

@@ -26,11 +26,12 @@ export default async function ProfilePage({
   return (
     <>
       <PageHeader
-        eyebrow="// Personnel File"
-        title={user.nickname ?? user.discordUsername ?? "Operativo"}
-        description={user.discordUsername ? `@${user.discordUsername}` : undefined}
+        eyebrow={`OPERADOR · ${user.id.slice(-6).toUpperCase()}`}
+        title={(user.nickname ?? user.discordUsername ?? "Operativo")}
+        description={user.discordUsername ? `@${user.discordUsername} · ${rank.label}` : rank.label}
+        stamps={[{ label: `▸ ${user.permission}`, tone: user.permission === "ADMIN" ? "amber" : "default" }]}
       />
-      <div className="p-8 grid lg:grid-cols-[280px_1fr] gap-8">
+      <div className="px-7 pb-7 grid lg:grid-cols-[280px_1fr] gap-6">
         {/* Left — ID card */}
         <div className="panel panel-bracket p-4 h-fit">
           <div className="aspect-square bg-[var(--color-base)] border border-[var(--color-border)] grid place-items-center overflow-hidden relative">

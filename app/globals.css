@@ -6,6 +6,13 @@
    Heredado del handoff de Claude Design + componentes existentes.
    ===================================================================== */
 
+/* Animatable custom prop — needed for .panel-bracket hover corner growth. */
+@property --reticle-size {
+  syntax: "<length>";
+  initial-value: 12px;
+  inherits: true;
+}
+
 @theme {
   /* Surfaces — deep space navy */
   --color-base:        #050810;
@@ -137,28 +144,30 @@
     position: relative;
   }
 
-  /* Backwards-compat: 2-corner brackets */
+  /* 4-corner reticle via multi-background (no child spans needed).
+     Replaces the old 2-corner version — every existing call site
+     automatically gets all four brackets. */
   .panel-bracket {
     position: relative;
   }
-  .panel-bracket::before,
-  .panel-bracket::after {
+  .panel-bracket::before {
     content: "";
     position: absolute;
-    width: 10px; height: 10px;
-    border: 1px solid var(--color-accent);
-    transition: width 200ms var(--ease-out-expo), height 200ms var(--ease-out-expo);
+    inset: -1px;
+    pointer-events: none;
+    --reticle-size: 12px;
+    background:
+      linear-gradient(var(--color-accent), var(--color-accent)) top left    / var(--reticle-size) 1px no-repeat,
+      linear-gradient(var(--color-accent), var(--color-accent)) top left    / 1px var(--reticle-size) no-repeat,
+      linear-gradient(var(--color-accent), var(--color-accent)) top right   / var(--reticle-size) 1px no-repeat,
+      linear-gradient(var(--color-accent), var(--color-accent)) top right   / 1px var(--reticle-size) no-repeat,
+      linear-gradient(var(--color-accent), var(--color-accent)) bottom left / var(--reticle-size) 1px no-repeat,
+      linear-gradient(var(--color-accent), var(--color-accent)) bottom left / 1px var(--reticle-size) no-repeat,
+      linear-gradient(var(--color-accent), var(--color-accent)) bottom right/ var(--reticle-size) 1px no-repeat,
+      linear-gradient(var(--color-accent), var(--color-accent)) bottom right/ 1px var(--reticle-size) no-repeat;
+    transition: --reticle-size 220ms var(--ease-out-expo);
   }
-  .panel-bracket::before {
-    top: -1px; left: -1px;
-    border-right: 0; border-bottom: 0;
-  }
-  .panel-bracket::after {
-    bottom: -1px; right: -1px;
-    border-left: 0; border-top: 0;
-  }
-  .panel-bracket:hover::before,
-  .panel-bracket:hover::after { width: 16px; height: 16px; }
+  .panel-bracket:hover::before { --reticle-size: 18px; }
 
   /* 4-corner reticle (UNSC signature) */
   .reticle::before,
@@ -564,6 +573,50 @@
     outline: none;
     border-color: var(--color-accent) !important;
     background: var(--color-base-2) !important;
+  }
+  .input {
+    background: var(--color-base-2);
+    border: 1px solid var(--color-border);
+    padding: 6px 12px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--color-text);
+  }
+  .input:focus {
+    outline: none;
+    border-color: var(--color-accent);
+  }
+
+  /* Dashed hairline divider */
+  .hr {
+    border: 0;
+    border-top: 1px dashed var(--color-border-2);
+    margin: 0;
+  }
+
+  /* Pill button — small toggle (filter chip style) */
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    padding: 6px 12px;
+    border: 1px solid var(--color-border-2);
+    background: transparent;
+    color: var(--color-muted);
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: all 160ms var(--ease-out-quad);
+  }
+  .chip:hover {
+    color: var(--color-text);
+    border-color: var(--color-accent-dim);
+  }
+  .chip-active {
+    border-color: var(--color-accent);
+    color: var(--color-accent);
+    background: var(--color-accent-soft);
   }
 }
 

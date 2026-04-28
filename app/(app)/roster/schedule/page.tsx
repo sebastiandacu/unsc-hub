@@ -21,11 +21,14 @@ export default async function SchedulePage() {
   return (
     <>
       <PageHeader
-        eyebrow="// Operations Calendar"
-        title="Schedule"
-        description="Operaciones próximas, briefings y entrenamientos. Click sobre un evento para el briefing completo."
+        eyebrow="OPERACIONES"
+        title="Calendario."
+        description="Despliegues programados, briefings y entrenamientos. Confirmá asistencia con 24h de anticipación."
+        stamps={[
+          { label: `▸ ${events.filter((e) => new Date(e.startsAt) >= new Date()).length} OPS PRÓXIMAS`, tone: "amber" },
+        ]}
       />
-      <div className="p-8">
+      <div className="px-7 pb-7">
         <ScheduleClient
           userId={user.id}
           isAdmin={isAdmin}

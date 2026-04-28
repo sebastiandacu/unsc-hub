@@ -21,15 +21,23 @@ export default async function BulletinPage() {
     },
   });
 
+  const pinnedCount = posts.filter((p) => p.pinned).length;
+  const unreadCount = posts.filter((p) => p.reads.length === 0).length;
+
   return (
     <>
       <PageHeader
-        eyebrow="// Internal Comms"
-        title="Bulletin"
-        description="Comunicados oficiales y órdenes. Los fijados aparecen primero."
-        action={canPost ? <Link href="/bulletin/new" className="btn btn-primary">+ Nuevo bulletin</Link> : undefined}
+        eyebrow="COMUNICACIONES"
+        title="Boletín."
+        description="Comunicados oficiales y operativos. Los fijados aparecen primero. Todo queda registrado."
+        stamps={[
+          { label: `▸ ${posts.length} ACTIVOS` },
+          ...(pinnedCount > 0 ? [{ label: `▸ ${pinnedCount} FIJADOS`, tone: "amber" as const }] : []),
+          ...(unreadCount > 0 ? [{ label: `▸ ${unreadCount} SIN LEER`, tone: "red" as const }] : []),
+        ]}
+        action={canPost ? <Link href="/bulletin/new" className="btn btn-primary">+ Nuevo boletín</Link> : undefined}
       />
-      <div className="p-8">
+      <div className="px-7 pb-7">
         {posts.length === 0 ? (
           <div className="panel p-12 text-center text-[var(--color-muted)] font-mono">— Sin bulletins por ahora —</div>
         ) : (

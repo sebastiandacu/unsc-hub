@@ -17,11 +17,14 @@ export default async function GalleryPage() {
   return (
     <>
       <PageHeader
-        eyebrow="// Archive"
-        title="Galería"
-        description="Museo visual del unit. Operaciones, momentos, evidencia. Click en cualquier foto para verla en grande."
+        eyebrow="ARCHIVO VISUAL"
+        title="Galería."
+        description="Capturas de operaciones, after-action reports en imagen y archivo histórico."
+        stamps={[
+          { label: `▸ ${items.length} ${items.length === 1 ? "PIEZA" : "PIEZAS"}` },
+        ]}
       />
-      <div className="p-8">
+      <div className="px-7 pb-7">
         <GalleryClient
           isAdmin={isAdmin}
           items={items.map((i) => ({

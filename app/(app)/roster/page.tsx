@@ -33,12 +33,15 @@ export default async function RosterPage({
   return (
     <>
       <PageHeader
-        eyebrow="// Personnel"
-        title="Roster"
-        description="Todos los operativos registrados. Cambiá entre vista general (GRID) y vista por equipo (TREE)."
+        eyebrow="PERSONAL"
+        title="Roster."
+        description="Operadores registrados. Cambiá entre vista general (GRID) y vista por equipo (TREE)."
+        stamps={[
+          { label: `▸ ${users.length} ${users.length === 1 ? "AUTORIZADO" : "AUTORIZADOS"}`, tone: "green" },
+        ]}
       />
-      <div className="p-8 space-y-6">
-        <div className="flex items-center gap-1 panel p-1 w-fit">
+      <div className="px-7 pb-7 space-y-5">
+        <div className="flex items-center gap-1.5 w-fit">
           <ViewTab href="/roster?view=grid" label="GRID" active={view === "grid"} />
           <ViewTab href="/roster?view=tree" label="TREE" active={view === "tree"} />
         </div>
@@ -59,14 +62,7 @@ export default async function RosterPage({
 
 function ViewTab({ href, label, active }: { href: string; label: string; active: boolean }) {
   return (
-    <Link
-      href={href}
-      className={`label-mono px-3 py-1.5 transition-colors ${
-        active
-          ? "bg-[var(--color-accent)] text-black"
-          : "text-[var(--color-muted)] hover:text-[var(--color-accent)]"
-      }`}
-    >
+    <Link href={href} className={`chip ${active ? "chip-active" : ""}`}>
       {label}
     </Link>
   );
