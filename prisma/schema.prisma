@@ -328,6 +328,18 @@ model TeamCategory {
   sortOrder   Int      @default(0)
   createdAt   DateTime @default(now())
 
+  /// Discord sync — IDs of the role + 4 channels this category owns.
+  /// All four are populated atomically when the category is created;
+  /// failure to create any of them rolls back the DB row (must-succeed).
+  discordRoleId            String?
+  discordChannelCategoryId String?
+  discordShoutChannelId    String?
+  discordChatChannelId     String?
+  discordVoiceChannelId    String?
+  /// Discord role IDs allowed to write in the #shout channel.
+  /// Empty list = the category role itself can write.
+  shoutAuthorizedRoleIds   String[] @default([])
+
   teams Team[]
 
   @@index([sortOrder])
@@ -348,6 +360,9 @@ model Team {
   /// category sets teams to null instead of cascading deletes — the UI then
   /// surfaces them under "Sin categoría" until reassigned.
   categoryId            String?
+  /// Discord role ID this team owns (purely a distinction role; no channel
+  /// permissions attached). Created on team-create, deleted on team-delete.
+  discordRoleId         String?
   createdAt             DateTime @default(now())
 
   parentTeam Team?         @relation("TeamHierarchy", fields: [parentTeamId], references: [id])

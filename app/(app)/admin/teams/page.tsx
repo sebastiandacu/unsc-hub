@@ -71,6 +71,8 @@ export default async function AdminTeamsPage() {
             logoUrl: c.logoUrl,
             sortOrder: c.sortOrder,
             teamCount: c._count.teams,
+            shoutAuthorizedRoleIds: c.shoutAuthorizedRoleIds,
+            discordRoleId: c.discordRoleId,
           }))}
           teams={teams.map((t) => ({
             id: t.id,

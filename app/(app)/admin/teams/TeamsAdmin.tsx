@@ -21,6 +21,7 @@ import {
   createTeamCategory,
   updateTeamCategory,
   deleteTeamCategory,
+  fetchGuildRoles,
 } from "@/lib/actions/teamCategories";
 import { ImageUploadButton } from "@/components/ImageUploadButton";
 
@@ -65,6 +66,8 @@ type CategoryInfo = {
   logoUrl: string | null;
   sortOrder: number;
   teamCount: number;
+  shoutAuthorizedRoleIds: string[];
+  discordRoleId: string | null;
 };
 
 type Priority = { priorityOrder: number; displayLabel: string };
@@ -978,6 +981,7 @@ function CategoryForm({
     color: string;
     logoUrl: string | null;
     sortOrder: number;
+    shoutAuthorizedRoleIds: string[];
   }) => void;
   onCancel: () => void;
 }) {
@@ -988,6 +992,27 @@ function CategoryForm({
   const [sortOrder, setSortOrder] = useState<string>(
     initial?.sortOrder?.toString() ?? "0",
   );
+  const [shoutRoles, setShoutRoles] = useState<string[]>(initial?.shoutAuthorizedRoleIds ?? []);
+  const [guildRoles, setGuildRoles] = useState<Array<{ id: string; name: string; color: number }> | null>(null);
+  const [rolesLoading, setRolesLoading] = useState(false);
+  const [rolesError, setRolesError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setRolesLoading(true);
+    setRolesError(null);
+    fetchGuildRoles()
+      .then((rs) => { if (!cancelled) setGuildRoles(rs); })
+      .catch((e) => { if (!cancelled) setRolesError(e instanceof Error ? e.message : String(e)); })
+      .finally(() => { if (!cancelled) setRolesLoading(false); });
+    return () => { cancelled = true; };
+  }, []);
+
+  function toggleRole(id: string) {
+    setShoutRoles((prev) =>
+      prev.includes(id) ? prev.filter((r) => r !== id) : [...prev, id],
+    );
+  }
 
   return (
     <form
@@ -1000,6 +1025,7 @@ function CategoryForm({
           color: color.trim() || "#4dd0ff",
           logoUrl: logoUrl.trim() || null,
           sortOrder: Number(sortOrder) || 0,
+          shoutAuthorizedRoleIds: shoutRoles,
         });
       }}
       className="grid sm:grid-cols-2 gap-3 text-xs font-mono"
@@ -1058,6 +1084,55 @@ function CategoryForm({
           </button>
         )}
       </div>
+      <div className="sm:col-span-2">
+        <div className="label-mono mb-2">
+          Roles autorizados a shoutear en #{name ? slugify(name) : "categoria"}-shout
+        </div>
+        <div className="text-[10.5px] text-[var(--color-text-dim)] normal-case tracking-normal mb-2 leading-relaxed">
+          Seleccioná los roles de Discord que pueden escribir en el canal #shout. Si no marcás nada, todos los miembros con el rol de la categoría podrán escribir.
+        </div>
+        {rolesLoading && (
+          <div className="label-mono text-[var(--color-muted)]">Cargando roles del server…</div>
+        )}
+        {rolesError && (
+          <div className="label-mono text-[var(--color-danger)] normal-case tracking-normal">
+            Error: {rolesError}
+          </div>
+        )}
+        {guildRoles && (
+          <div className="max-h-44 overflow-y-auto border border-[var(--color-border)] bg-[var(--color-base)] p-2 grid grid-cols-2 gap-1">
+            {guildRoles.map((r) => {
+              const checked = shoutRoles.includes(r.id);
+              const colorHex = r.color === 0
+                ? "var(--color-muted)"
+                : `#${r.color.toString(16).padStart(6, "0")}`;
+              return (
+                <label
+                  key={r.id}
+                  className="flex items-center gap-2 px-1.5 py-1 cursor-pointer hover:bg-[var(--color-panel-2)]"
+                >
+                  <input
+                    type="checkbox"
+                    checked={checked}
+                    onChange={() => toggleRole(r.id)}
+                    style={{ accentColor: "var(--color-accent)" }}
+                  />
+                  <span className="size-2 shrink-0" style={{ background: colorHex }} />
+                  <span className="truncate normal-case tracking-normal" style={{ color: colorHex }}>
+                    {r.name}
+                  </span>
+                </label>
+              );
+            })}
+            {guildRoles.length === 0 && (
+              <div className="label-mono text-[var(--color-muted)] col-span-2">
+                Sin roles disponibles. Verificá DISCORD_BOT_TOKEN + DISCORD_GUILD_ID.
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
       <div className="sm:col-span-2 flex justify-end gap-2 pt-2 border-t border-[var(--color-border)]">
         <button type="button" onClick={onCancel} className="btn">
           Cancelar
@@ -1071,5 +1146,15 @@ function CategoryForm({
       </div>
     </form>
   );
+}
+
+function slugify(s: string): string {
+  return s
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/(^-|-$)/g, "")
+    .slice(0, 90) || "categoria";
 }
 

@@ -47,12 +47,15 @@ export async function createBulletin(input: z.infer<typeof createSchema>) {
       },
       user.id,
     ),
-    postToDiscord({
-      title: data.pinned ? `📌 ${data.title}` : data.title,
-      description: `Nuevo bulletin publicado por **${user.nickname ?? user.discordUsername ?? "Operative"}**.`,
-      url: absoluteUrl(`/bulletin/${post.id}`),
-      footer: "BULLETIN · HUB",
-    }),
+    postToDiscord(
+      {
+        title: data.pinned ? `📌 ${data.title}` : data.title,
+        description: `Nuevo boletín publicado por **${user.nickname ?? user.discordUsername ?? "Operativo"}**.\n\n**[Leer en el HUB →](${absoluteUrl(`/bulletin/${post.id}`)})**`,
+        url: absoluteUrl(`/bulletin/${post.id}`),
+        footer: "BOLETÍN · HUB",
+      },
+      { mentionEveryone: true },
+    ),
     fanOutMentions(data.bodyJson, {
       authorId: user.id,
       authorName: user.nickname ?? user.discordUsername ?? "Operative",

@@ -6,6 +6,89 @@ import { prisma } from "@/lib/db";
 import { requireAdmin, requireUser } from "@/lib/auth/guards";
 import { resolveRank } from "@/lib/rank";
 import { notify, notifyAdmins } from "@/lib/notify";
+import {
+  createRole,
+  editRole,
+  deleteRole,
+  addRoleToMember,
+  removeRoleFromMember,
+  isGuildMember,
+  hexToColor,
+  DiscordBotError,
+} from "@/lib/discord-bot";
+
+/**
+ * Add the team role + the team's category role to a Discord member.
+ * Best-effort: returns a warning string when the user isn't in the
+ * guild or Discord rejects the call. Caller surfaces it.
+ */
+async function syncMemberJoinedTeam(userId: string, teamId: string): Promise<string | null> {
+  const [user, team] = await Promise.all([
+    prisma.user.findUnique({ where: { id: userId }, select: { discordId: true, nickname: true, discordUsername: true } }),
+    prisma.team.findUnique({
+      where: { id: teamId },
+      include: { category: { select: { discordRoleId: true, name: true } } },
+    }),
+  ]);
+  if (!user?.discordId || !team) return null;
+
+  const reason = `HUB · ${user.nickname ?? user.discordUsername ?? userId} → ${team.name}`;
+  try {
+    const inGuild = await isGuildMember(user.discordId);
+    if (!inGuild) {
+      return `${user.nickname ?? user.discordUsername ?? "el usuario"} no está en el server de Discord. Cuando entre, los roles no se le van a aplicar automáticamente — lo tendrás que sincronizar a mano.`;
+    }
+    if (team.discordRoleId) await addRoleToMember(user.discordId, team.discordRoleId, reason);
+    if (team.category?.discordRoleId) await addRoleToMember(user.discordId, team.category.discordRoleId, reason);
+    return null;
+  } catch (e) {
+    return `Discord rechazó asignar roles a ${user.nickname ?? user.discordUsername ?? userId}: ${e instanceof Error ? e.message : String(e)}`;
+  }
+}
+
+/**
+ * Remove the team role; if the user has no remaining team in the same
+ * category, also strip the category role.
+ */
+async function syncMemberLeftTeam(userId: string, teamId: string): Promise<string | null> {
+  const [user, team] = await Promise.all([
+    prisma.user.findUnique({ where: { id: userId }, select: { discordId: true, nickname: true, discordUsername: true } }),
+    prisma.team.findUnique({
+      where: { id: teamId },
+      include: { category: { select: { id: true, discordRoleId: true, name: true } } },
+    }),
+  ]);
+  if (!user?.discordId || !team) return null;
+
+  const reason = `HUB · ${user.nickname ?? user.discordUsername ?? userId} ← ${team.name}`;
+  try {
+    if (team.discordRoleId) {
+      await removeRoleFromMember(user.discordId, team.discordRoleId, reason).catch((e) => {
+        if (e instanceof DiscordBotError && e.status === 404) return;
+        throw e;
+      });
+    }
+
+    // Still in another team in the same category? Then keep the category role.
+    if (team.category?.id && team.category.discordRoleId) {
+      const stillIn = await prisma.teamSlot.count({
+        where: {
+          holderId: userId,
+          team: { categoryId: team.category.id, id: { not: teamId } },
+        },
+      });
+      if (stillIn === 0) {
+        await removeRoleFromMember(user.discordId, team.category.discordRoleId, reason).catch((e) => {
+          if (e instanceof DiscordBotError && e.status === 404) return;
+          throw e;
+        });
+      }
+    }
+    return null;
+  } catch (e) {
+    return `Discord rechazó remover roles a ${user.nickname ?? user.discordUsername ?? userId}: ${e instanceof Error ? e.message : String(e)}`;
+  }
+}
 
 const teamSchema = z.object({
   name: z.string().trim().min(1).max(80),
@@ -24,21 +107,54 @@ const teamSchema = z.object({
 export async function createTeam(input: z.infer<typeof teamSchema>) {
   const admin = await requireAdmin();
   const data = teamSchema.parse(input);
-  const team = await prisma.team.create({
-    data: {
+  const colorInt = hexToColor(data.color || "#c9a227");
+
+  // Discord first (must-succeed). The team role is purely a distinction;
+  // the category's role grants the actual channel access.
+  let discordRoleId: string | null = null;
+  try {
+    const role = await createRole({
       name: data.name,
-      callsign: data.callsign?.trim() || null,
-      color: data.color?.trim() || "#c9a227",
-      logoUrl: data.logoUrl?.trim() || null,
-      description: data.description?.trim() || null,
-      allowsMultiMembership: !!data.allowsMultiMembership,
-      minRankPriority: data.minRankPriority ?? null,
-      teamType: data.teamType ?? "ORGANIZATIONAL",
-      categoryId: data.categoryId,
-    },
-  });
+      color: colorInt,
+      reason: `HUB · crear team ${data.name}`,
+    });
+    discordRoleId = role.id;
+  } catch (e) {
+    throw new Error(
+      `Discord rechazó crear el rol del team: ${e instanceof Error ? e.message : String(e)}.`,
+    );
+  }
+
+  let team;
+  try {
+    team = await prisma.team.create({
+      data: {
+        name: data.name,
+        callsign: data.callsign?.trim() || null,
+        color: data.color?.trim() || "#c9a227",
+        logoUrl: data.logoUrl?.trim() || null,
+        description: data.description?.trim() || null,
+        allowsMultiMembership: !!data.allowsMultiMembership,
+        minRankPriority: data.minRankPriority ?? null,
+        teamType: data.teamType ?? "ORGANIZATIONAL",
+        categoryId: data.categoryId,
+        discordRoleId,
+      },
+    });
+  } catch (e) {
+    // DB failed after Discord succeeded — clean up the orphan role.
+    if (discordRoleId) await deleteRole(discordRoleId).catch(() => {});
+    throw e;
+  }
+
   await prisma.auditLog.create({
-    data: { actorId: admin.id, action: "team.create", targetType: "Team", targetId: team.id },
+    data: {
+      actorId: admin.id,
+      action: "team.create",
+      targetType: "Team",
+      targetId: team.id,
+      payloadJson: { discordRoleId },
+    },
   });
   revalidatePath("/admin/teams");
   revalidatePath("/roster/teams");
@@ -48,6 +164,27 @@ export async function createTeam(input: z.infer<typeof teamSchema>) {
 export async function updateTeam(id: string, input: z.infer<typeof teamSchema>) {
   const admin = await requireAdmin();
   const data = teamSchema.parse(input);
+  const prev = await prisma.team.findUnique({ where: { id } });
+  if (!prev) throw new Error("Team no encontrado");
+
+  const renamed = data.name !== prev.name;
+  const recolored = (data.color || "#c9a227") !== prev.color;
+  const colorInt = hexToColor(data.color || "#c9a227");
+
+  if (prev.discordRoleId && (renamed || recolored)) {
+    try {
+      await editRole(
+        prev.discordRoleId,
+        { name: data.name, color: colorInt },
+        `HUB · editar team ${data.name}`,
+      );
+    } catch (e) {
+      throw new Error(
+        `Discord rechazó editar el rol del team: ${e instanceof Error ? e.message : String(e)}.`,
+      );
+    }
+  }
+
   await prisma.team.update({
     where: { id },
     data: {
@@ -72,6 +209,23 @@ export async function updateTeam(id: string, input: z.infer<typeof teamSchema>) 
 
 export async function deleteTeam(id: string) {
   const admin = await requireAdmin();
+  const prev = await prisma.team.findUnique({ where: { id } });
+  if (!prev) return;
+
+  if (prev.discordRoleId) {
+    try {
+      await deleteRole(prev.discordRoleId, `HUB · borrar team ${prev.name}`);
+    } catch (e) {
+      // 404 means it's already gone — ignore. Other errors block the delete
+      // so the admin knows to clean up.
+      if (!(e instanceof DiscordBotError && e.status === 404)) {
+        throw new Error(
+          `Discord rechazó borrar el rol del team: ${e instanceof Error ? e.message : String(e)}.`,
+        );
+      }
+    }
+  }
+
   await prisma.team.delete({ where: { id } });
   await prisma.auditLog.create({
     data: { actorId: admin.id, action: "team.delete", targetType: "Team", targetId: id },
@@ -225,9 +379,13 @@ export async function joinSlot(slotId: string, confirmRelease = false): Promise<
   await prisma.auditLog.create({
     data: { actorId: user.id, action: "slot.join", targetType: "TeamSlot", targetId: slotId },
   });
+
+  // Discord sync (best-effort: warning surfaces but doesn't roll back).
+  const discordWarn = await syncMemberJoinedTeam(user.id, slot.teamId);
+
   revalidatePath(`/roster/teams/${slot.teamId}`);
   revalidatePath("/roster/teams");
-  return { ok: true };
+  return { ok: true, warn: discordWarn ?? undefined };
 }
 
 export async function leaveSlot(slotId: string) {
@@ -238,6 +396,10 @@ export async function leaveSlot(slotId: string) {
   await prisma.auditLog.create({
     data: { actorId: user.id, action: "slot.leave", targetType: "TeamSlot", targetId: slotId },
   });
+
+  // Discord sync (best-effort).
+  await syncMemberLeftTeam(user.id, slot.teamId);
+
   revalidatePath(`/roster/teams/${slot.teamId}`);
   revalidatePath("/roster/teams");
 }
@@ -298,12 +460,20 @@ export async function reviewApplication(applicationId: string, approve: boolean,
 
   if (approve) {
     if (!app.slot.team.allowsMultiMembership) {
-      await prisma.teamSlot.updateMany({
+      // Find the previous slot they're being released from to sync Discord later.
+      const previous = await prisma.teamSlot.findFirst({
         where: { teamId: app.slot.teamId, holderId: app.applicantId },
-        data: { holderId: null },
       });
+      if (previous) {
+        await prisma.teamSlot.updateMany({
+          where: { teamId: app.slot.teamId, holderId: app.applicantId },
+          data: { holderId: null },
+        });
+      }
     }
     await prisma.teamSlot.update({ where: { id: app.slotId }, data: { holderId: app.applicantId } });
+    // Discord sync: add team + category roles.
+    await syncMemberJoinedTeam(app.applicantId, app.slot.teamId);
   }
 
   await prisma.teamApplication.update({
@@ -356,6 +526,7 @@ export async function adminKickFromSlot(slotId: string) {
       payloadJson: { kickedUserId: previousHolder, teamId: slot.teamId },
     },
   });
+  await syncMemberLeftTeam(previousHolder, slot.teamId);
   revalidatePath("/admin/teams");
   revalidatePath(`/roster/teams/${slot.teamId}`);
   revalidatePath("/roster/teams");
@@ -396,6 +567,7 @@ export async function adminAssignToSlot(slotId: string, userId: string) {
       payloadJson: { assignedUserId: userId, teamId: slot.teamId },
     },
   });
+  await syncMemberJoinedTeam(userId, slot.teamId);
   revalidatePath("/admin/teams");
   revalidatePath(`/roster/teams/${slot.teamId}`);
   revalidatePath("/roster/teams");
@@ -407,10 +579,13 @@ export async function adminBanFromTeam(teamId: string, userId: string, reason?: 
   const team = await prisma.team.findUnique({ where: { id: teamId } });
   if (!team) throw new Error("Team not found");
 
+  // Snapshot whether they actually held a slot, so we know whether to sync.
+  const wasMember = (await prisma.teamSlot.count({ where: { teamId, holderId: userId } })) > 0;
   await prisma.teamSlot.updateMany({
     where: { teamId, holderId: userId },
     data: { holderId: null },
   });
+  if (wasMember) await syncMemberLeftTeam(userId, teamId);
 
   await prisma.teamBan.upsert({
     where: { userId_teamId: { userId, teamId } },
