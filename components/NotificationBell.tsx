@@ -95,19 +95,42 @@ export function NotificationBell({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
-  // Lightweight polling every 60s while panel is closed
+  // Background refresh: poll every 20s while the panel is closed AND the
+  // tab is visible, plus an immediate refetch when the user comes back to
+  // the tab (the most common "I expected a new notif" moment).
   useEffect(() => {
-    const id = setInterval(async () => {
-      if (open) return;
+    let cancelled = false;
+    async function refetch() {
+      if (cancelled || open) return;
       try {
         const data = await listMyNotifications(20);
+        if (cancelled) return;
         setItems(data.items as unknown as N[]);
         setUnread(data.unreadCount);
       } catch {
-        /* ignore */
+        /* ignore — bell stays at last-known state */
       }
-    }, 60000);
-    return () => clearInterval(id);
+    }
+
+    const id = setInterval(() => {
+      if (document.visibilityState === "visible") refetch();
+    }, 20_000);
+
+    function onVisibility() {
+      if (document.visibilityState === "visible") refetch();
+    }
+    function onFocus() {
+      refetch();
+    }
+    document.addEventListener("visibilitychange", onVisibility);
+    window.addEventListener("focus", onFocus);
+
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+      document.removeEventListener("visibilitychange", onVisibility);
+      window.removeEventListener("focus", onFocus);
+    };
   }, [open]);
 
   // When the panel opens, tag every item currently on screen as "seen this session".
