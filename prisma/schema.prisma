@@ -1,0 +1,437 @@
+// MILSIM Hub data model
+// See plan: C:\Users\Sebas\.claude\plans\hey-claude-let-s-begin-adaptive-snowflake.md
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// ───────────────── Auth.js core models ─────────────────
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+// ───────────────── Domain ─────────────────
+
+enum Permission {
+  AUTHORIZED
+  LICENSED
+  CERTIFICATED
+  ADMIN
+}
+
+enum JoinMode {
+  OPEN
+  APPLY
+}
+
+enum TeamType {
+  ORGANIZATIONAL
+  OPERATIVE
+}
+
+enum ApplicationStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum RsvpStatus {
+  GOING
+  MAYBE
+  DECLINED
+}
+
+enum EventOutcome {
+  PENDING
+  SUCCESS
+  PARTIAL
+  FAILURE
+  CANCELLED
+}
+
+model User {
+  id                  String     @id @default(cuid())
+  // Auth.js adapter standard fields (do not remove — PrismaAdapter writes to these on first sign-in)
+  name                String?
+  image               String?
+  // Domain fields
+  discordId           String?    @unique
+  discordUsername     String?
+  email               String?    @unique
+  emailVerified       DateTime?
+  avatarUrl           String?
+  nickname            String?
+  bio                 String?
+  permission          Permission @default(AUTHORIZED)
+  manualRankOverride  String?
+  banned              Boolean    @default(false)
+  createdAt           DateTime   @default(now())
+  updatedAt           DateTime   @updatedAt
+  lastSeenAt          DateTime?
+
+  accounts            Account[]
+  sessions            Session[]
+  medals              Medal[]              @relation("MedalsHeld")
+  awardedMedals       Medal[]              @relation("MedalsAwarded")
+  patches             Patch[]              @relation("PatchesHeld")
+  awardedPatches      Patch[]              @relation("PatchesAwarded")
+  discordSnapshot     DiscordRoleSnapshot?
+  bulletinPosts       BulletinPost[]
+  bulletinReads       BulletinRead[]
+  wallThreads         WallThread[]
+  wallReplies         WallReply[]
+  threadsLocked       WallThread[]         @relation("ThreadsLocked")
+  heldSlots           TeamSlot[]           @relation("SlotHolder")
+  applications        TeamApplication[]    @relation("Applicant")
+  reviewedApplications TeamApplication[]   @relation("Reviewer")
+  events              Event[]
+  rsvps               EventRSVP[]
+  auditLogs           AuditLog[]
+  teamBans            TeamBan[]            @relation("TeamBanned")
+  teamBansIssued      TeamBan[]            @relation("TeamBanIssuer")
+  notifications       Notification[]
+  wallReactions       WallReaction[]
+  galleryUploads      GalleryItem[]
+
+  @@index([banned, lastSeenAt(sort: Desc)])
+}
+
+model Notification {
+  id        String    @id @default(cuid())
+  userId    String
+  kind      String
+  title     String
+  body      String?
+  url       String?
+  readAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([userId, readAt])
+}
+
+model WallReaction {
+  threadId  String
+  userId    String
+  emoji     String
+  createdAt DateTime @default(now())
+
+  thread WallThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  user   User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([threadId, userId, emoji])
+  @@index([threadId])
+}
+
+model TeamBan {
+  id           String   @id @default(cuid())
+  userId       String
+  teamId       String
+  bannedById   String
+  reason       String?
+  createdAt    DateTime @default(now())
+
+  user      User @relation("TeamBanned",     fields: [userId],     references: [id], onDelete: Cascade)
+  team      Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  bannedBy  User @relation("TeamBanIssuer", fields: [bannedById], references: [id])
+
+  @@unique([userId, teamId])
+  @@index([teamId])
+}
+
+model Medal {
+  id           String   @id @default(cuid())
+  userId       String
+  name         String
+  description  String?
+  iconUrl      String?
+  awardedById  String
+  awardedAt    DateTime @default(now())
+
+  user      User @relation("MedalsHeld",     fields: [userId],      references: [id], onDelete: Cascade)
+  awardedBy User @relation("MedalsAwarded",  fields: [awardedById], references: [id])
+
+  @@index([userId])
+}
+
+model Patch {
+  id           String   @id @default(cuid())
+  userId       String
+  name         String
+  description  String?
+  imageUrl     String?
+  awardedById  String
+  awardedAt    DateTime @default(now())
+
+  user      User @relation("PatchesHeld",     fields: [userId],      references: [id], onDelete: Cascade)
+  awardedBy User @relation("PatchesAwarded",  fields: [awardedById], references: [id])
+
+  @@index([userId])
+}
+
+model MedalTemplate {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  iconUrl     String?
+  createdAt   DateTime @default(now())
+}
+
+model PatchTemplate {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  imageUrl    String?
+  createdAt   DateTime @default(now())
+}
+
+model DiscordRoleSnapshot {
+  userId          String   @id
+  roleIds         String[]
+  rolesFetchedAt  DateTime @default(now())
+  inGuild         Boolean  @default(true)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model DiscordRolePriority {
+  roleId        String  @id
+  priorityOrder Int     @unique
+  displayLabel  String
+}
+
+model BulletinPost {
+  id              String   @id @default(cuid())
+  authorId        String
+  title           String
+  bodyJson        Json
+  headerImageUrl  String?
+  bannerImageUrl  String?
+  pinned          Boolean  @default(false)
+  editedAt        DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  author User           @relation(fields: [authorId], references: [id])
+  reads  BulletinRead[]
+
+  @@index([pinned, createdAt])
+}
+
+model BulletinRead {
+  postId String
+  userId String
+  readAt DateTime @default(now())
+
+  post BulletinPost @relation(fields: [postId], references: [id], onDelete: Cascade)
+  user User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([postId, userId])
+}
+
+model WallCategory {
+  id          String  @id @default(cuid())
+  slug        String  @unique
+  name        String
+  description String?
+  color       String  @default("#c9a227")
+  sortOrder   Int     @default(0)
+
+  threads WallThread[]
+}
+
+model WallThread {
+  id              String   @id @default(cuid())
+  categoryId      String
+  authorId        String
+  title           String
+  bodyJson        Json
+  headerImageUrl  String?
+  bannerImageUrl  String?
+  pinned          Boolean  @default(false)
+  editedAt        DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  lockedByAdminId String?
+
+  category     WallCategory @relation(fields: [categoryId], references: [id])
+  author       User         @relation(fields: [authorId],   references: [id])
+  lockedBy     User?        @relation("ThreadsLocked", fields: [lockedByAdminId], references: [id])
+  replies      WallReply[]
+  reactions    WallReaction[]
+
+  @@index([categoryId, createdAt])
+}
+
+model WallReply {
+  id        String   @id @default(cuid())
+  threadId  String
+  authorId  String
+  bodyJson  Json
+  editedAt  DateTime?
+  createdAt DateTime @default(now())
+
+  thread WallThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  author User       @relation(fields: [authorId], references: [id])
+
+  @@index([threadId, createdAt])
+}
+
+model Team {
+  id                    String   @id @default(cuid())
+  name                  String
+  callsign              String?
+  color                 String   @default("#c9a227")
+  logoUrl               String?
+  description           String?
+  parentTeamId          String?
+  allowsMultiMembership Boolean  @default(false)
+  minRankPriority       Int?
+  teamType              TeamType @default(ORGANIZATIONAL)
+  createdAt             DateTime @default(now())
+
+  parentTeam Team?      @relation("TeamHierarchy", fields: [parentTeamId], references: [id])
+  childTeams Team[]     @relation("TeamHierarchy")
+  slots      TeamSlot[]
+  bans       TeamBan[]
+}
+
+model TeamSlot {
+  id              String   @id @default(cuid())
+  teamId          String
+  title           String
+  roleName        String?
+  joinMode        JoinMode @default(OPEN)
+  minRankPriority Int?
+  holderId        String?
+  sortOrder       Int      @default(0)
+
+  team         Team              @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  holder       User?             @relation("SlotHolder", fields: [holderId], references: [id])
+  applications TeamApplication[]
+
+  @@index([teamId, sortOrder])
+}
+
+model TeamApplication {
+  id          String            @id @default(cuid())
+  slotId      String
+  applicantId String
+  message     String?
+  status      ApplicationStatus @default(PENDING)
+  reviewedById String?
+  reviewedAt  DateTime?
+  reviewNote  String?
+  createdAt   DateTime          @default(now())
+
+  slot       TeamSlot @relation(fields: [slotId],       references: [id], onDelete: Cascade)
+  applicant  User     @relation("Applicant", fields: [applicantId], references: [id])
+  reviewedBy User?    @relation("Reviewer",  fields: [reviewedById], references: [id])
+
+  @@index([slotId, status])
+}
+
+model Event {
+  id              String   @id @default(cuid())
+  title           String
+  startsAt        DateTime
+  endsAt          DateTime?
+  location        String?
+  briefingJson    Json
+  headerImageUrl  String?
+  bannerImageUrl  String?
+  slidesEmbedUrl  String?
+  createdById     String
+  visibility      String   @default("ALL")
+  createdAt       DateTime @default(now())
+
+  // After-Action Report
+  outcome         EventOutcome @default(PENDING)
+  aarJson         Json?
+  aarPostedAt     DateTime?
+
+  createdBy User        @relation(fields: [createdById], references: [id])
+  rsvps     EventRSVP[]
+
+  @@index([startsAt])
+}
+
+model EventRSVP {
+  eventId String
+  userId  String
+  status  RsvpStatus @default(GOING)
+  setAt   DateTime   @default(now())
+
+  event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  user  User  @relation(fields: [userId],  references: [id], onDelete: Cascade)
+
+  @@id([eventId, userId])
+}
+
+model GalleryItem {
+  id             String   @id @default(cuid())
+  title          String
+  description    String?
+  imageUrl       String
+  mediaType      String   @default("image") // "image" | "video"
+  uploadedById   String
+  createdAt      DateTime @default(now())
+
+  uploadedBy User @relation(fields: [uploadedById], references: [id])
+
+  @@index([createdAt])
+}
+
+model AuditLog {
+  id          String   @id @default(cuid())
+  actorId     String
+  action      String
+  targetType  String?
+  targetId    String?
+  payloadJson Json?
+  createdAt   DateTime @default(now())
+
+  actor User @relation(fields: [actorId], references: [id])
+
+  @@index([createdAt])
+}
