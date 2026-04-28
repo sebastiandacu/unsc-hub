@@ -95,28 +95,30 @@ export async function createTeamCategory(input: z.infer<typeof categorySchema>) 
     });
     categoryChannelId = cat.id;
 
+    // Channel names are unscoped because they live INSIDE the category
+    // channel — Discord allows duplicate names across categories.
     const shout = await createTextChannel({
-      name: `${slug}-shout`,
+      name: "shout",
       parentId: cat.id,
       visibilityRoleId: role.id,
       shoutAuthorizedRoleIds: data.shoutAuthorizedRoleIds ?? [],
-      reason: `HUB · canal #${slug}-shout`,
+      reason: `HUB · canal #shout en ${data.name}`,
     });
     shoutChannelId = shout.id;
 
     const chat = await createTextChannel({
-      name: `${slug}-chat`,
+      name: "chat",
       parentId: cat.id,
       visibilityRoleId: role.id,
-      reason: `HUB · canal #${slug}-chat`,
+      reason: `HUB · canal #chat en ${data.name}`,
     });
     chatChannelId = chat.id;
 
     const voice = await createVoiceChannel({
-      name: `${slug}-voz`,
+      name: "1",
       parentId: cat.id,
       visibilityRoleId: role.id,
-      reason: `HUB · canal de voz ${slug}`,
+      reason: `HUB · canal de voz 1 en ${data.name}`,
     });
     voiceChannelId = voice.id;
   } catch (e) {

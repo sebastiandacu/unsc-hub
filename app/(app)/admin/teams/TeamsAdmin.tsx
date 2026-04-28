@@ -1086,7 +1086,7 @@ function CategoryForm({
       </div>
       <div className="sm:col-span-2">
         <div className="label-mono mb-2">
-          Roles autorizados a shoutear en #{name ? slugify(name) : "categoria"}-shout
+          Roles autorizados a shoutear en #shout
         </div>
         <div className="text-[10.5px] text-[var(--color-text-dim)] normal-case tracking-normal mb-2 leading-relaxed">
           Seleccioná los roles de Discord que pueden escribir en el canal #shout. Si no marcás nada, todos los miembros con el rol de la categoría podrán escribir.
@@ -1148,13 +1148,4 @@ function CategoryForm({
   );
 }
 
-function slugify(s: string): string {
-  return s
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[̀-ͯ]/g, "")
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/(^-|-$)/g, "")
-    .slice(0, 90) || "categoria";
-}
 
