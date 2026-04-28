@@ -120,12 +120,12 @@ function CategorySection({
           <img
             src={category.logoUrl}
             alt=""
-            className="size-12 object-contain shrink-0"
-            style={{ filter: `drop-shadow(0 0 8px ${color}55)` }}
+            className="size-14 object-contain shrink-0"
+            style={{ filter: `drop-shadow(0 0 10px ${color}66)` }}
           />
         ) : (
           <div
-            className="size-12 grid place-items-center border shrink-0 font-mono text-[11px]"
+            className="size-14 grid place-items-center border shrink-0 font-mono text-[12px]"
             style={{ borderColor: color, color }}
           >
             {name.slice(0, 2).toUpperCase()}
@@ -226,7 +226,7 @@ function TeamCard({ team: t }: { team: TeamRow }) {
           src={t.logoUrl}
           alt=""
           aria-hidden
-          className="pointer-events-none select-none absolute inset-0 w-full h-full object-contain object-center brightness-[0.18] group-hover:brightness-[0.28] group-hover:scale-105 transition-all duration-700 -z-10"
+          className="pointer-events-none select-none absolute inset-0 w-full h-full object-contain object-center brightness-[0.45] group-hover:brightness-[0.7] group-hover:scale-105 transition-all duration-700 -z-10"
         />
       )}
 
