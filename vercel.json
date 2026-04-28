@@ -1,5 +1,10 @@
 {
   "regions": ["gru1"],
+  "functions": {
+    "app/**/*": {
+      "maxDuration": 30
+    }
+  },
   "crons": [
     {
       "path": "/api/cron/discord-sync",
