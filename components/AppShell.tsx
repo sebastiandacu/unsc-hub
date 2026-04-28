@@ -341,39 +341,14 @@ function FFT() {
 
 function BrandMark() {
   return (
-    <div className="size-11 relative grid place-items-center shrink-0 transition-transform group-hover:rotate-6 group-hover:scale-105 duration-300">
-      <svg
-        viewBox="0 0 44 44"
-        width="44"
-        height="44"
+    <div className="size-11 relative grid place-items-center shrink-0 transition-transform group-hover:rotate-3 group-hover:scale-105 duration-300">
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={unit.logo.mark}
+        alt={unit.shortCode}
+        className="size-full object-contain"
         style={{ filter: "drop-shadow(0 0 6px rgba(77, 208, 255, 0.35))" }}
-      >
-        <defs>
-          <linearGradient id="bm-grad" x1="0" x2="1" y1="0" y2="1">
-            <stop offset="0" stopColor="var(--color-accent)" />
-            <stop offset="1" stopColor="var(--color-accent-dim)" />
-          </linearGradient>
-        </defs>
-        <polygon
-          points="22,3 39,12 39,32 22,41 5,32 5,12"
-          fill="none"
-          stroke="url(#bm-grad)"
-          strokeWidth="1.4"
-        />
-        <polygon
-          points="22,9 34,15 34,29 22,35 10,29 10,15"
-          fill="none"
-          stroke="var(--color-accent)"
-          strokeWidth="0.6"
-          opacity="0.6"
-        />
-        <path
-          d="M14 26 L22 14 L30 26 L26 26 L22 20 L18 26 Z"
-          fill="var(--color-accent)"
-        />
-        <line x1="22" y1="3" x2="22" y2="9" stroke="var(--color-accent)" strokeWidth="0.5" />
-        <line x1="22" y1="35" x2="22" y2="41" stroke="var(--color-accent)" strokeWidth="0.5" />
-      </svg>
+      />
     </div>
   );
 }
