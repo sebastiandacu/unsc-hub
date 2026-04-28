@@ -1,19 +1,69 @@
-import Link from "next/link";
-import { requireUser } from "@/lib/auth/guards";
-import { PageHeader } from "@/components/PageHeader";
+import { requireUser, hasPermission } from "@/lib/auth/guards";
 import { resolveRank } from "@/lib/rank";
 import { prisma } from "@/lib/db";
+import { Hero } from "@/components/unsc/Hero";
+import { OperatorCard } from "@/components/unsc/OperatorCard";
+import { OpsMap } from "@/components/unsc/OpsMap";
+import { BulletinFeed } from "@/components/unsc/BulletinFeed";
+import { ScheduleFeed } from "@/components/unsc/ScheduleFeed";
+import { Directives } from "@/components/unsc/Directives";
+
+const ONLINE_WINDOW_MIN = 15;
+
+/**
+ * Hash a string into a [0,100) bucket. Used to spread event pins around the
+ * tactical map deterministically — same event = same spot, no shuffling.
+ */
+function hashBucket(s: string, salt: number): number {
+  let h = salt;
+  for (let i = 0; i < s.length; i++) h = ((h << 5) - h + s.charCodeAt(i)) | 0;
+  return Math.abs(h) % 100;
+}
+
+function relativeUntil(d: Date): string {
+  const ms = d.getTime() - Date.now();
+  if (ms < 0) return "EN VIVO";
+  const totalMin = Math.floor(ms / 60_000);
+  if (totalMin < 60) return `${totalMin}m`;
+  const h = Math.floor(totalMin / 60);
+  const m = totalMin % 60;
+  if (h < 24) return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+  const days = Math.floor(h / 24);
+  return `${days}d ${h % 24}h`;
+}
+
+function relativeAgo(d: Date): string {
+  const sec = Math.floor((Date.now() - d.getTime()) / 1000);
+  if (sec < 60) return "ahora";
+  if (sec < 3600) return `hace ${Math.floor(sec / 60)}m`;
+  if (sec < 86400) return `hace ${Math.floor(sec / 3600)}h`;
+  if (sec < 604800) return `hace ${Math.floor(sec / 86400)}d`;
+  return d.toLocaleDateString("es-ES", { day: "2-digit", month: "short" });
+}
+
+const MONTHS_ES = [
+  "ENE", "FEB", "MAR", "ABR", "MAY", "JUN",
+  "JUL", "AGO", "SEP", "OCT", "NOV", "DIC",
+];
+
+const CATEGORY_ROTATION: Array<"red" | "amber" | "green" | "cyan"> = [
+  "red", "amber", "green", "cyan",
+];
 
 export default async function DashboardPage() {
   const user = await requireUser();
+  const isAdmin = hasPermission(user, "ADMIN");
   const rank = await resolveRank(user.id);
+  const since = new Date(Date.now() - ONLINE_WINDOW_MIN * 60_000);
 
-  const [pinned, mySlots, upcoming, unreadCount, activity] = await Promise.all([
+  const [pinned, mySlots, upcoming, totalBulletins, unreadCount, rosterTotal, onlineNow] = await Promise.all([
     prisma.bulletinPost.findMany({
       where: { pinned: true },
       orderBy: { createdAt: "desc" },
-      take: 5,
-      select: { id: true, title: true, createdAt: true },
+      take: 4,
+      include: {
+        author: { select: { nickname: true, discordUsername: true } },
+      },
     }),
     prisma.teamSlot.findMany({
       where: { holderId: user.id },
@@ -22,254 +72,184 @@ export default async function DashboardPage() {
     prisma.event.findMany({
       where: { startsAt: { gte: new Date() } },
       orderBy: { startsAt: "asc" },
-      take: 5,
+      take: 4,
       select: { id: true, title: true, startsAt: true, location: true },
     }),
+    prisma.bulletinPost.count(),
     prisma.bulletinPost.count({
       where: { reads: { none: { userId: user.id } } },
     }),
-    prisma.auditLog.findMany({
+    prisma.user.count({ where: { banned: false } }),
+    prisma.user.count({
       where: {
-        action: {
-          in: [
-            "bulletin.create",
-            "wall.pinThread",
-            "team.create",
-            "event.create",
-          ],
-        },
+        banned: false,
+        lastSeenAt: { gte: since },
       },
-      orderBy: { createdAt: "desc" },
-      take: 5,
-      include: { actor: { select: { id: true, nickname: true, discordUsername: true } } },
     }),
   ]);
 
   const display = user.nickname || user.discordUsername || "Operativo";
+  const rankShort = (rank.label || "OPERATIVO").split(" ").slice(0, 2).join(" ");
+
+  // Build pins from upcoming events
+  const pins = upcoming.slice(0, 5).map((e, i) => ({
+    id: `OP-${e.title.toUpperCase().replace(/[^A-Z0-9]+/g, "-").slice(0, 14)}`,
+    label: e.location ?? `Sector ${String.fromCharCode(65 + (i % 6))}${i + 1}`,
+    x: 12 + hashBucket(e.id, 17) * 0.78,
+    y: 14 + hashBucket(e.id, 31) * 0.6,
+    color: i === 0 ? ("amber" as const) : i === 2 ? ("red" as const) : ("" as const),
+  }));
+
+  // Hero alerts
+  const nextOp = upcoming[0];
+  const alerts = [
+    {
+      label: `▸ INFORME ${new Date().toLocaleDateString("es-AR", {
+        day: "2-digit", month: "2-digit", year: "numeric",
+      }).replace(/\//g, ".")}`,
+    },
+    upcoming.length > 0
+      ? { label: `▸ ${upcoming.length} OP${upcoming.length > 1 ? "S" : ""} PROGRAMADAS`, tone: "amber" as const }
+      : { label: "▸ SIN OPS PROGRAMADAS", tone: "muted" as const },
+    { label: `▸ ROSTER ${onlineNow}/${rosterTotal}`, tone: "muted" as const },
+  ];
+
+  // Hero caret line
+  const caretBits: string[] = [];
+  if (mySlots.length > 0) caretBits.push(`Asignado a ${mySlots.length} ${mySlots.length === 1 ? "equipo" : "equipos"}.`);
+  if (unreadCount > 0) caretBits.push(`${unreadCount} ${unreadCount === 1 ? "boletín" : "boletines"} sin leer.`);
+  if (nextOp) {
+    const rel = relativeUntil(nextOp.startsAt);
+    caretBits.push(`Próximo despliegue en ${rel}.`);
+  }
+  caretBits.push("Toda actividad queda registrada.");
+  const caretLine = caretBits.join(" ");
+
+  // Operator card permissions
+  const permStamps: { label: string; tone?: "default" | "amber" | "green" }[] = [];
+  permStamps.push({ label: "▸ AUTORIZADO" });
+  if (hasPermission(user, "LICENSED")) permStamps.push({ label: "▸ LICENCIA", tone: "green" });
+  if (hasPermission(user, "CERTIFICATED")) permStamps.push({ label: "▸ CERTIFICADO", tone: "green" });
+  if (isAdmin) permStamps.push({ label: "▸ ADMIN", tone: "amber" });
+
+  // Bulletin items mapped
+  const feedItems = pinned.map((b, i) => ({
+    id: b.id,
+    num: `B-${String(b.id.slice(-3)).toUpperCase()}`,
+    category: i === 0 ? "ACTIONABLE" : i === 1 ? "IN-CHARACTER" : i === 2 ? "LORE" : "OFF-ROLE",
+    categoryColor: CATEGORY_ROTATION[i % CATEGORY_ROTATION.length],
+    title: b.title,
+    ts: relativeAgo(b.createdAt),
+    author: (b.author?.nickname ?? b.author?.discordUsername ?? "CMD").toUpperCase(),
+  }));
+
+  // Schedule items mapped
+  const scheduleItems = upcoming.map((e) => {
+    const d = new Date(e.startsAt);
+    const time = d.toLocaleTimeString("es-AR", {
+      hour: "2-digit",
+      minute: "2-digit",
+      timeZone: "America/Argentina/Buenos_Aires",
+      hour12: false,
+    });
+    const detailParts = [`${time} ART`];
+    if (e.location) detailParts.push(e.location);
+    return {
+      id: e.id,
+      d: String(d.getDate()).padStart(2, "0"),
+      m: MONTHS_ES[d.getMonth()],
+      title: e.title,
+      details: detailParts.join(" · "),
+    };
+  });
+
+  // Directives — derived
+  const directives: Array<{ code: string; title: string; urgency: "HOY" | "24H" | "48H" | "ESTE_MES"; href: string }> = [];
+  let dirIdx = 1;
+  if (nextOp) {
+    const hoursAway = Math.max(0, (nextOp.startsAt.getTime() - Date.now()) / 3_600_000);
+    const urgency: "HOY" | "24H" | "48H" | "ESTE_MES" =
+      hoursAway < 24 ? "HOY" : hoursAway < 48 ? "24H" : hoursAway < 168 ? "48H" : "ESTE_MES";
+    directives.push({
+      code: `D-${String(dirIdx++).padStart(2, "0")}`,
+      title: `Confirmar asistencia: ${nextOp.title}`,
+      urgency,
+      href: `/roster/schedule?event=${nextOp.id}`,
+    });
+  }
+  if (unreadCount > 0) {
+    directives.push({
+      code: `D-${String(dirIdx++).padStart(2, "0")}`,
+      title: `Revisar ${unreadCount} ${unreadCount === 1 ? "boletín" : "boletines"} sin leer`,
+      urgency: unreadCount > 3 ? "HOY" : "24H",
+      href: "/bulletin",
+    });
+  }
+  if (!user.nickname) {
+    directives.push({
+      code: `D-${String(dirIdx++).padStart(2, "0")}`,
+      title: "Asignar callsign / nickname en tu perfil",
+      urgency: "ESTE_MES",
+      href: "/profile",
+    });
+  }
+
+  const idNumber = user.id.slice(-7).replace(/(.{2})(.+)/, "$1-$2").toUpperCase();
+  const callsign = (user.nickname ?? user.discordUsername ?? "OPERATIVO").toUpperCase();
+  const accessLevel = isAdmin ? 5 : hasPermission(user, "CERTIFICATED") ? 4 : hasPermission(user, "LICENSED") ? 3 : 2;
 
   return (
-    <>
-      <PageHeader
-        eyebrow={`// Bienvenido, ${display}`}
-        title="Dashboard"
-        description="Bulletins fijados, tus equipos y operaciones próximas."
-      />
+    <div className="p-7 space-y-5 reveal-stagger">
+      {/* === Hero + Operator (top row) === */}
+      <div className="grid lg:grid-cols-[1.6fr_1fr] gap-4 items-stretch">
+        <Hero
+          display={display}
+          stats={{
+            onlineNow,
+            rosterTotal,
+            activeOps: upcoming.length,
+            nextOpRelative: nextOp ? relativeUntil(nextOp.startsAt) : "—",
+            nextOpName: nextOp ? nextOp.title : null,
+            bulletinUnread: unreadCount,
+            bulletinTotal: totalBulletins,
+          }}
+          alerts={alerts}
+          caretLine={caretLine}
+        />
+        <OperatorCard
+          idNumber={idNumber}
+          rankShort={rankShort.split(" ")[0] || "OP."}
+          callsign={callsign}
+          avatarUrl={user.avatarUrl}
+          permissions={permStamps}
+          accessLevel={accessLevel}
+        />
+      </div>
 
-      <div className="p-8 space-y-6 reveal">
-        {/* === Stat row === */}
-        <div className="grid lg:grid-cols-3 gap-5 reveal-stagger">
-          <Card label="Standing" value={rank.label} sub={`Fuente: ${rank.source}`} />
-          <Card label="Permission" value={user.permission} sub="Rol en el hub" />
-          <Card
-            label="Bulletins sin leer"
-            value={String(unreadCount)}
-            sub={unreadCount > 0 ? "Ponte al día." : "Todo limpio."}
-            urgent={unreadCount > 0}
-          />
-        </div>
-
-        {/* === Two-column row === */}
-        <div className="grid lg:grid-cols-2 gap-5 reveal-stagger">
-          <section className="panel panel-bracket p-5">
-            <SectionTitle code="01" label="Pinned Bulletins" />
-            {pinned.length === 0 ? (
-              <Empty>Nada fijado por ahora.</Empty>
-            ) : (
-              <ul className="space-y-2 mt-4">
-                {pinned.map((p) => (
-                  <li key={p.id}>
-                    <Link
-                      href={`/bulletin/${p.id}`}
-                      className="block border border-[var(--color-border)] px-3.5 py-2.5 hover:border-[var(--color-accent)] hover:bg-[var(--color-accent-soft)] transition-all group"
-                    >
-                      <div className="font-mono text-sm truncate group-hover:text-[var(--color-accent)] transition-colors">
-                        {p.title}
-                      </div>
-                      <div className="label-mono mt-1 text-[9.5px]">
-                        {new Date(p.createdAt).toLocaleDateString("es-ES", {
-                          day: "2-digit",
-                          month: "short",
-                          year: "numeric",
-                        })}
-                      </div>
-                    </Link>
-                  </li>
-                ))}
-              </ul>
+      {/* === Tactical map === */}
+      <div>
+        <div className="sect-h">
+          <div className="sect-title">
+            <span className="num">// 00</span>
+            <h2>Mapa Táctico · Tiempo Real</h2>
+            {upcoming.length > 0 && (
+              <span className="stamp stamp-amber ml-1.5">
+                {upcoming.length} {upcoming.length === 1 ? "OP ACTIVA" : "OPS ACTIVAS"}
+              </span>
             )}
-          </section>
-
-          <section className="panel panel-bracket p-5">
-            <SectionTitle code="02" label="My Teams" />
-            {mySlots.length === 0 ? (
-              <Empty>
-                No estás en ningún equipo aún.{" "}
-                <Link href="/roster/teams" className="text-[var(--color-accent)] hover:underline">
-                  Ver Teams →
-                </Link>
-              </Empty>
-            ) : (
-              <ul className="space-y-2 mt-4">
-                {mySlots.map((s) => (
-                  <li key={s.id}>
-                    <Link
-                      href={`/roster/teams/${s.team.id}`}
-                      className="block border border-[var(--color-border)] px-3.5 py-2.5 hover:border-[var(--color-accent)] hover:bg-[var(--color-accent-soft)] transition-all group"
-                    >
-                      <div className="flex items-center gap-2">
-                        <span
-                          className="size-2.5 rounded-full"
-                          style={{ background: s.team.color }}
-                        />
-                        <span className="font-mono text-sm truncate group-hover:text-[var(--color-accent)] transition-colors">
-                          {s.team.name}
-                          {s.team.callsign && (
-                            <span className="label-mono ml-2 text-[9.5px]">
-                              {s.team.callsign}
-                            </span>
-                          )}
-                        </span>
-                      </div>
-                      <div className="label-mono mt-1 text-[9.5px]">{s.title}</div>
-                    </Link>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </section>
-        </div>
-
-        {/* === Activity feed === */}
-        <section className="panel panel-bracket p-5">
-          <SectionTitle code="03" label="Activity Feed" />
-          {activity.length === 0 ? (
-            <Empty>Sin actividad reciente.</Empty>
-          ) : (
-            <ul className="space-y-1.5 mt-4">
-              {activity.map((a) => {
-                const actor = a.actor.nickname ?? a.actor.discordUsername ?? "Operativo";
-                const verb = ACTION_VERB[a.action] ?? a.action;
-                const payload = a.payloadJson as { name?: string } | null;
-                const detail = payload?.name ? ` · ${payload.name}` : "";
-                return (
-                  <li
-                    key={a.id}
-                    className="flex items-baseline gap-3 text-xs font-mono border-l-2 border-[var(--color-border)] pl-3 py-1 hover:border-[var(--color-accent)] transition-colors"
-                  >
-                    <span className="label-mono text-[var(--color-muted)] shrink-0 w-20">
-                      {timeAgo(a.createdAt)}
-                    </span>
-                    <span className="text-[var(--color-accent)] shrink-0">
-                      <Link href={`/roster/${a.actor.id}`} className="hover:underline">{actor}</Link>
-                    </span>
-                    <span className="text-[var(--color-muted)] truncate">
-                      {verb}{detail}
-                    </span>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-        </section>
-
-        {/* === Upcoming === */}
-        <section className="panel panel-bracket p-5">
-          <div className="flex items-center justify-between mb-4">
-            <SectionTitle code="04" label="Upcoming Operations" />
-            <Link
-              href="/roster/schedule"
-              className="label-mono hover:text-[var(--color-accent)] transition-colors"
-            >
-              Abrir calendario →
-            </Link>
           </div>
-          {upcoming.length === 0 ? (
-            <Empty>Sin operaciones en el calendario.</Empty>
-          ) : (
-            <ul className="space-y-2">
-              {upcoming.map((e) => (
-                <li
-                  key={e.id}
-                  className="flex items-center gap-4 border border-[var(--color-border)] px-3.5 py-2.5 hover:border-[var(--color-accent)] transition-colors group"
-                >
-                  <span className="label-mono shrink-0 w-40 text-[var(--color-accent)]">
-                    {new Date(e.startsAt).toLocaleString("es-ES", {
-                      day: "2-digit",
-                      month: "short",
-                      hour: "2-digit",
-                      minute: "2-digit",
-                    })}
-                  </span>
-                  <span className="font-mono text-sm flex-1 truncate group-hover:text-[var(--color-accent)] transition-colors">
-                    {e.title}
-                  </span>
-                  {e.location && <span className="label-mono">{e.location}</span>}
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
+        </div>
+        <OpsMap pins={pins} />
       </div>
-    </>
-  );
-}
 
-function Card({
-  label,
-  value,
-  sub,
-  urgent,
-}: {
-  label: string;
-  value: string;
-  sub?: string;
-  urgent?: boolean;
-}) {
-  return (
-    <div className="panel panel-bracket p-5 relative overflow-hidden group">
-      <div className="flex items-center justify-between">
-        <div className="label-mono">{label}</div>
-        {urgent && <span className="size-1.5 bg-[var(--color-danger)] animate-pulse" />}
+      {/* === Bulletin + Schedule === */}
+      <div className="grid lg:grid-cols-[1.4fr_1fr] gap-4">
+        <BulletinFeed items={feedItems} unreadCount={unreadCount} />
+        <ScheduleFeed items={scheduleItems} isAdmin={isAdmin} />
       </div>
-      <div className="metric mt-4 transition-transform group-hover:translate-x-1">{value}</div>
-      {sub && <div className="text-xs text-[var(--color-muted)] mt-2 font-mono">{sub}</div>}
-      {/* Decorative */}
-      <span className="absolute right-3 top-3 label-mono text-[8px] text-[var(--color-border-2)]">
-        REC.{label.slice(0, 3).toUpperCase()}
-      </span>
-    </div>
-  );
-}
 
-function SectionTitle({ code, label }: { code: string; label: string }) {
-  return (
-    <h2 className="flex items-center gap-3 font-mono uppercase text-sm tracking-[0.18em]">
-      <span className="text-[10px] text-[var(--color-accent)]">{code}</span>
-      <span className="text-[var(--color-text)]">{label}</span>
-    </h2>
-  );
-}
-
-const ACTION_VERB: Record<string, string> = {
-  "bulletin.create": "publicó un bulletin",
-  "wall.pinThread": "fijó un hilo",
-  "team.create": "creó un equipo",
-  "event.create": "creó una operación",
-};
-
-function timeAgo(d: Date): string {
-  const sec = Math.floor((Date.now() - d.getTime()) / 1000);
-  if (sec < 60) return "ahora";
-  if (sec < 3600) return `${Math.floor(sec / 60)}m`;
-  if (sec < 86400) return `${Math.floor(sec / 3600)}h`;
-  if (sec < 604800) return `${Math.floor(sec / 86400)}d`;
-  return d.toLocaleDateString("es-ES", { day: "2-digit", month: "short" });
-}
-
-function Empty({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="text-sm text-[var(--color-muted)] mt-3 border border-dashed border-[var(--color-border)] px-3 py-4 text-center font-mono">
-      {children}
+      {/* === Directives === */}
+      <Directives items={directives} />
     </div>
   );
 }

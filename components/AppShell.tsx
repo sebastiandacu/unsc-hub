@@ -193,29 +193,149 @@ export function AppShell({
 
         {/* === Main === */}
         <main className="min-w-0 flex flex-col">
-          <div className="flex items-center gap-2 px-4 md:px-6 py-3 border-b border-[var(--color-border)] bg-[var(--color-panel)]/40 backdrop-blur-sm">
-            <button
-              onClick={() => setNavOpen(true)}
-              className="md:hidden size-9 grid place-items-center border border-[var(--color-border)] hover:border-[var(--color-accent)] transition-colors"
-              aria-label="Abrir menú"
-            >
-              <span className="flex flex-col gap-1">
-                <span className="block w-4 h-0.5 bg-current" />
-                <span className="block w-4 h-0.5 bg-current" />
-                <span className="block w-4 h-0.5 bg-current" />
-              </span>
-            </button>
-            <Link href="/dashboard" className="md:hidden font-display text-sm tracking-tight uppercase" style={{ fontFamily: "var(--font-display)" }}>
-              {unit.shortCode}<span className="text-[var(--color-accent)]">/</span>HUB
-            </Link>
-            <div className="flex-1" />
-            <SearchCommand />
-            <NotificationBell initialItems={notifications.items} initialUnread={notifications.unreadCount} />
-          </div>
+          <Topbar
+            onMenu={() => setNavOpen(true)}
+            search={<SearchCommand />}
+            notifications={
+              <NotificationBell
+                initialItems={notifications.items}
+                initialUnread={notifications.unreadCount}
+              />
+            }
+          />
           {children}
         </main>
       </div>
     </div>
+  );
+}
+
+function Topbar({
+  onMenu,
+  search,
+  notifications,
+}: {
+  onMenu: () => void;
+  search: React.ReactNode;
+  notifications: React.ReactNode;
+}) {
+  const pathname = usePathname();
+  const [sector, setSector] = useState("G7-04A");
+  const [ping, setPing] = useState(14);
+
+  useEffect(() => {
+    const tick = () => {
+      const d = new Date();
+      setSector(`G${7 + (d.getSeconds() % 4)}-${String(4 + (d.getMinutes() % 20)).padStart(2, "0")}A`);
+    };
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, []);
+
+  useEffect(() => {
+    const id = setInterval(() => setPing(10 + Math.floor(Math.random() * 12)), 1400);
+    return () => clearInterval(id);
+  }, []);
+
+  // Crumb segments derived from URL.
+  const segs = pathname.split("/").filter(Boolean);
+  const top = segs[0] === "admin" ? "ADMIN" : "HUB";
+  const last = (segs.length > 1 ? segs[segs.length - 1] : segs[0] ?? "DASHBOARD")
+    .replace(/-/g, " ")
+    .toUpperCase();
+
+  return (
+    <div className="topbar flex items-center gap-3 md:gap-4 px-4 md:px-6 py-2.5 border-b border-[var(--color-border)] bg-[rgba(8,13,24,0.7)] backdrop-blur-sm sticky top-0 z-[4]">
+      <button
+        onClick={onMenu}
+        className="md:hidden size-9 grid place-items-center border border-[var(--color-border)] hover:border-[var(--color-accent)] transition-colors"
+        aria-label="Abrir menú"
+      >
+        <span className="flex flex-col gap-1">
+          <span className="block w-4 h-0.5 bg-current" />
+          <span className="block w-4 h-0.5 bg-current" />
+          <span className="block w-4 h-0.5 bg-current" />
+        </span>
+      </button>
+
+      {/* Crumb */}
+      <div className="hidden md:flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.22em] text-[var(--color-muted)]">
+        <span className="size-1.5 bg-[var(--color-accent)]" />
+        <span>UNSC</span>
+        <span className="text-[var(--color-border-2)]">/</span>
+        <span>{top}</span>
+        {top === "ADMIN" && segs.length > 1 && (
+          <>
+            <span className="text-[var(--color-border-2)]">/</span>
+            <span style={{ color: "var(--color-accent)" }}>{last}</span>
+          </>
+        )}
+        {top !== "ADMIN" && (
+          <>
+            <span className="text-[var(--color-border-2)]">/</span>
+            <span style={{ color: "var(--color-accent)" }}>{last}</span>
+          </>
+        )}
+      </div>
+
+      <Link
+        href="/dashboard"
+        className="md:hidden uppercase tracking-tight text-sm font-bold"
+        style={{ fontFamily: "var(--font-display)" }}
+      >
+        UNSC<span className="text-[var(--color-accent)]">/</span>HUB
+      </Link>
+
+      <div className="flex-1" />
+
+      {/* Telemetry */}
+      <div className="hidden xl:flex items-center gap-4 font-mono text-[10px] tracking-[0.14em] text-[var(--color-text-dim)]">
+        <Tele label="SECTOR">{sector}</Tele>
+        <Tele label="UPLINK">
+          <FFT />
+        </Tele>
+        <Tele label="PING">{ping}ms</Tele>
+        <Tele label="CIFRADO">
+          <span style={{ color: "var(--color-success)" }}>AES-256</span>
+        </Tele>
+      </div>
+
+      {search}
+      {notifications}
+    </div>
+  );
+}
+
+function Tele({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <span className="inline-flex items-center gap-2">
+      <span className="text-[var(--color-muted)]">{label}</span>
+      <span>{children}</span>
+    </span>
+  );
+}
+
+function FFT() {
+  return (
+    <span className="inline-flex items-end gap-[2px] h-4">
+      {Array.from({ length: 8 }).map((_, i) => (
+        <span
+          key={i}
+          className="w-[2px] bg-[var(--color-accent)]"
+          style={{
+            animation: `fft-bar 1.2s ease-in-out ${(i % 6) * 0.1}s infinite`,
+            height: "30%",
+          }}
+        />
+      ))}
+      <style>{`
+        @keyframes fft-bar {
+          0%, 100% { height: 25%; }
+          50% { height: 100%; }
+        }
+      `}</style>
+    </span>
   );
 }
 
