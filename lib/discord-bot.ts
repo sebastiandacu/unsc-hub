@@ -62,7 +62,15 @@ async function botFetch<T = unknown>(
   const headers = new Headers(init.headers);
   headers.set("authorization", `Bot ${token()}`);
   if (init.body && !headers.has("content-type")) headers.set("content-type", "application/json");
-  if (init.auditLog) headers.set("x-audit-log-reason", init.auditLog.slice(0, 512));
+  // Discord requires X-Audit-Log-Reason to be URL-encoded; HTTP headers
+  // also only accept latin-1 by default, so any unicode (→, ←, accents,
+  // emoji from a nickname, etc.) blows up unless we encode first.
+  if (init.auditLog) {
+    headers.set(
+      "x-audit-log-reason",
+      encodeURIComponent(init.auditLog).slice(0, 512),
+    );
+  }
 
   const res = await fetch(`${API}${path}`, { ...init, headers, cache: "no-store" });
 
