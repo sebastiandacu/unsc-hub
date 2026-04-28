@@ -10,14 +10,36 @@ export default async function EditBulletinPage({
   const { id } = await params;
   const user = await requireUser();
   if (!hasPermission(user, "LICENSED")) redirect("/bulletin");
-  const post = await prisma.bulletinPost.findUnique({ where: { id } });
+  const [post, teams] = await Promise.all([
+    prisma.bulletinPost.findUnique({
+      where: { id },
+      include: { restrictedTeams: { select: { id: true } } },
+    }),
+    prisma.team.findMany({
+      orderBy: [{ category: { sortOrder: "asc" } }, { name: "asc" }],
+      select: {
+        id: true,
+        name: true,
+        callsign: true,
+        color: true,
+        category: { select: { name: true } },
+      },
+    }),
+  ]);
   if (!post) notFound();
   return (
     <>
-      <PageHeader eyebrow="// Editar Bulletin" title={post.title} />
-      <div className="p-8 max-w-4xl">
+      <PageHeader eyebrow="EDITAR BOLETÍN" title={post.title} />
+      <div className="px-7 pb-7 max-w-4xl">
         <BulletinComposer
           mode="edit"
+          teams={teams.map((t) => ({
+            id: t.id,
+            name: t.name,
+            callsign: t.callsign,
+            color: t.color,
+            categoryName: t.category?.name ?? null,
+          }))}
           initial={{
             id: post.id,
             title: post.title,
@@ -25,6 +47,9 @@ export default async function EditBulletinPage({
             headerImageUrl: post.headerImageUrl,
             bannerImageUrl: post.bannerImageUrl,
             pinned: post.pinned,
+            postToDiscord: post.postToDiscord,
+            pingEveryone: post.pingEveryone,
+            restrictedTeamIds: post.restrictedTeams.map((t) => t.id),
           }}
         />
       </div>

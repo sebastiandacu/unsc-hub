@@ -1,17 +1,19 @@
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { PageHeader } from "@/components/PageHeader";
 import { prisma } from "@/lib/db";
 import { requireUser, hasPermission } from "@/lib/auth/guards";
 import { markRead } from "@/lib/actions/bulletin";
 import { RichRenderer } from "@/components/editor/RichRenderer";
 import { BulletinActions } from "./BulletinActions";
+import { assertCanSeeBulletin } from "@/lib/visibility";
 
 export default async function BulletinDetailPage({
   params,
 }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const user = await requireUser();
+  const isAdmin = hasPermission(user, "ADMIN");
   const post = await prisma.bulletinPost.findUnique({
     where: { id },
     include: {
@@ -20,9 +22,17 @@ export default async function BulletinDetailPage({
         include: { user: { select: { id: true, nickname: true, discordUsername: true } } },
         orderBy: { readAt: "asc" },
       },
+      restrictedTeams: { select: { id: true, name: true } },
     },
   });
   if (!post) notFound();
+
+  // Restricted-bulletin guard: bounce non-authorized users to the list.
+  try {
+    await assertCanSeeBulletin(id, user.id, isAdmin);
+  } catch {
+    redirect("/bulletin");
+  }
 
   await markRead(id);
 

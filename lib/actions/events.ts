@@ -42,11 +42,43 @@ const eventSchema = z.object({
   headerImageUrl: z.string().url().optional().nullable(),
   bannerImageUrl: z.string().url().optional().nullable(),
   slidesEmbedUrl: z.string().url().optional().nullable(),
+  /// Visibility
+  postToDiscord: z.boolean().optional(),
+  pingEveryone: z.boolean().optional(),
+  /// Empty = public (everyone). Non-empty = restricted to members of these teams.
+  restrictedTeamIds: z.array(z.string()).optional(),
 });
+
+import { notifyMany } from "@/lib/notify";
+
+/** Same restricted-fan-out logic as bulletins. */
+async function notifyForEvent(
+  restrictedTeamIds: string[],
+  exceptUserId: string,
+  payload: Parameters<typeof notifyMany>[1],
+) {
+  if (restrictedTeamIds.length === 0) {
+    await notifyAllUsers(payload, exceptUserId);
+    return;
+  }
+  const slots = await prisma.teamSlot.findMany({
+    where: { teamId: { in: restrictedTeamIds }, holderId: { not: null } },
+    select: { holderId: true },
+  });
+  const userIds = Array.from(
+    new Set(slots.map((s) => s.holderId!).filter((id) => id !== exceptUserId)),
+  );
+  if (userIds.length === 0) return;
+  await notifyMany(userIds, payload);
+}
 
 export async function createEvent(input: z.infer<typeof eventSchema>) {
   const admin = await requireAdmin();
   const data = eventSchema.parse(input);
+  const postToDiscordFlag = data.postToDiscord ?? true;
+  const pingEveryoneFlag = data.pingEveryone ?? true;
+  const restrictedTeamIds = data.restrictedTeamIds ?? [];
+
   const event = await prisma.event.create({
     data: {
       title: data.title,
@@ -58,10 +90,26 @@ export async function createEvent(input: z.infer<typeof eventSchema>) {
       bannerImageUrl: data.bannerImageUrl || null,
       slidesEmbedUrl: data.slidesEmbedUrl || null,
       createdById: admin.id,
+      postToDiscord: postToDiscordFlag,
+      pingEveryone: pingEveryoneFlag,
+      restrictedTeams:
+        restrictedTeamIds.length > 0
+          ? { connect: restrictedTeamIds.map((id) => ({ id })) }
+          : undefined,
     },
   });
   await prisma.auditLog.create({
-    data: { actorId: admin.id, action: "event.create", targetType: "Event", targetId: event.id },
+    data: {
+      actorId: admin.id,
+      action: "event.create",
+      targetType: "Event",
+      targetId: event.id,
+      payloadJson: {
+        postToDiscord: postToDiscordFlag,
+        pingEveryone: pingEveryoneFlag,
+        restrictedTeamCount: restrictedTeamIds.length,
+      },
+    },
   });
 
   const startDate = parseArgentinaInput(data.startsAt);
@@ -71,32 +119,51 @@ export async function createEvent(input: z.infer<typeof eventSchema>) {
     timeZone: "America/Argentina/Buenos_Aires",
   });
   const eventPath = `/roster/schedule?event=${event.id}`;
+  const restrictedSuffix = restrictedTeamIds.length > 0 ? " 🔒" : "";
+  const restrictedNames =
+    restrictedTeamIds.length > 0
+      ? (
+          await prisma.team.findMany({
+            where: { id: { in: restrictedTeamIds } },
+            select: { name: true },
+          })
+        )
+          .map((t) => t.name)
+          .join(", ")
+      : "";
+
   await Promise.allSettled([
-    notifyAllUsers(
-      {
-        kind: "event.created",
-        title: `📅 Nueva operación: ${data.title}`,
-        body: `${whenAR} (ART)${data.location ? ` · ${data.location}` : ""}`,
-        url: eventPath,
-      },
-      admin.id,
-    ),
-    postToDiscord(
-      {
-        title: `📅 ${data.title}`,
-        description: `Nueva operación programada.\n\n**[Ver briefing completo →](${absoluteUrl(eventPath)})**`,
-        url: absoluteUrl(eventPath),
-        fields: [
-          { name: "Cuándo (tu hora local)", value: discordTime(startDate), inline: false },
-          ...(data.location ? [{ name: "Dónde", value: data.location, inline: true }] : []),
-        ],
-        footer: "OPERATION · HUB",
-      },
-      {
-        webhookUrl: process.env.DISCORD_SCHEDULE_WEBHOOK_URL,
-        mentionEveryone: true,
-      },
-    ),
+    notifyForEvent(restrictedTeamIds, admin.id, {
+      kind: "event.created",
+      title: `📅 Nueva operación${restrictedSuffix}: ${data.title}`,
+      body: `${whenAR} (ART)${data.location ? ` · ${data.location}` : ""}`,
+      url: eventPath,
+    }),
+    postToDiscordFlag
+      ? postToDiscord(
+          {
+            title: `📅 ${data.title}${restrictedSuffix}`,
+            description: [
+              "Nueva operación programada.",
+              restrictedNames ? `🔒 Restringida a: **${restrictedNames}**` : "",
+              "",
+              `**[Ver briefing completo →](${absoluteUrl(eventPath)})**`,
+            ]
+              .filter(Boolean)
+              .join("\n"),
+            url: absoluteUrl(eventPath),
+            fields: [
+              { name: "Cuándo (tu hora local)", value: discordTime(startDate), inline: false },
+              ...(data.location ? [{ name: "Dónde", value: data.location, inline: true }] : []),
+            ],
+            footer: "OPERATION · HUB",
+          },
+          {
+            webhookUrl: process.env.DISCORD_SCHEDULE_WEBHOOK_URL,
+            mentionEveryone: pingEveryoneFlag && restrictedTeamIds.length === 0,
+          },
+        )
+      : Promise.resolve(),
   ]);
 
   revalidatePath("/roster/schedule");
@@ -106,6 +173,7 @@ export async function createEvent(input: z.infer<typeof eventSchema>) {
 export async function updateEvent(eventId: string, input: z.infer<typeof eventSchema>) {
   const admin = await requireAdmin();
   const data = eventSchema.parse(input);
+  const restrictedTeamIds = data.restrictedTeamIds ?? [];
   await prisma.event.update({
     where: { id: eventId },
     data: {
@@ -117,6 +185,9 @@ export async function updateEvent(eventId: string, input: z.infer<typeof eventSc
       headerImageUrl: data.headerImageUrl || null,
       bannerImageUrl: data.bannerImageUrl || null,
       slidesEmbedUrl: data.slidesEmbedUrl || null,
+      postToDiscord: data.postToDiscord ?? true,
+      pingEveryone: data.pingEveryone ?? true,
+      restrictedTeams: { set: restrictedTeamIds.map((id) => ({ id })) },
     },
   });
   await prisma.auditLog.create({

@@ -2,19 +2,22 @@ import { PageHeader } from "@/components/PageHeader";
 import { prisma } from "@/lib/db";
 import { requireUser, hasPermission } from "@/lib/auth/guards";
 import { ScheduleClient } from "./ScheduleClient";
+import { eventVisibilityWhere } from "@/lib/visibility";
 
 export default async function SchedulePage() {
   const user = await requireUser();
   const isAdmin = hasPermission(user, "ADMIN");
 
   const sixtyDaysAgo = new Date(Date.now() - 60 * 86400000);
+  const visWhere = await eventVisibilityWhere(user.id, isAdmin);
   const events = await prisma.event.findMany({
-    where: { startsAt: { gte: sixtyDaysAgo } },
+    where: { AND: [{ startsAt: { gte: sixtyDaysAgo } }, visWhere] },
     orderBy: { startsAt: "asc" },
     include: {
       rsvps: {
         include: { user: { select: { id: true, nickname: true, discordUsername: true } } },
       },
+      restrictedTeams: { select: { id: true, name: true } },
     },
   });
 

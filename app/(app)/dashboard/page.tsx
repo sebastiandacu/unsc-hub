@@ -1,6 +1,7 @@
 import { requireUser, hasPermission } from "@/lib/auth/guards";
 import { resolveRank } from "@/lib/rank";
 import { prisma } from "@/lib/db";
+import { bulletinVisibilityWhere, eventVisibilityWhere } from "@/lib/visibility";
 import { Hero } from "@/components/unsc/Hero";
 import { OperatorCard } from "@/components/unsc/OperatorCard";
 import { OpsMap } from "@/components/unsc/OpsMap";
@@ -56,9 +57,14 @@ export default async function DashboardPage() {
   const rank = await resolveRank(user.id);
   const since = new Date(Date.now() - ONLINE_WINDOW_MIN * 60_000);
 
+  const [bulletinVis, eventVis] = await Promise.all([
+    bulletinVisibilityWhere(user.id, isAdmin),
+    eventVisibilityWhere(user.id, isAdmin),
+  ]);
+
   const [pinned, mySlots, upcoming, totalBulletins, unreadCount, rosterTotal, onlineNow] = await Promise.all([
     prisma.bulletinPost.findMany({
-      where: { pinned: true },
+      where: { AND: [{ pinned: true }, bulletinVis] },
       orderBy: { createdAt: "desc" },
       take: 4,
       include: {
@@ -70,14 +76,14 @@ export default async function DashboardPage() {
       include: { team: { select: { id: true, name: true, callsign: true, color: true } } },
     }),
     prisma.event.findMany({
-      where: { startsAt: { gte: new Date() } },
+      where: { AND: [{ startsAt: { gte: new Date() } }, eventVis] },
       orderBy: { startsAt: "asc" },
       take: 4,
       select: { id: true, title: true, startsAt: true, location: true },
     }),
-    prisma.bulletinPost.count(),
+    prisma.bulletinPost.count({ where: bulletinVis }),
     prisma.bulletinPost.count({
-      where: { reads: { none: { userId: user.id } } },
+      where: { AND: [{ reads: { none: { userId: user.id } } }, bulletinVis] },
     }),
     prisma.user.count({ where: { banned: false } }),
     prisma.user.count({

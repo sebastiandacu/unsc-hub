@@ -252,8 +252,16 @@ model BulletinPost {
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
-  author User           @relation(fields: [authorId], references: [id])
-  reads  BulletinRead[]
+  /// When false, the post is HUB-only (no webhook fired on create).
+  postToDiscord   Boolean  @default(true)
+  /// When false, the Discord post (if any) does NOT include @everyone.
+  pingEveryone    Boolean  @default(true)
+
+  author          User           @relation(fields: [authorId], references: [id])
+  reads           BulletinRead[]
+  /// Empty = visible to everyone. Non-empty = only members of any of these
+  /// teams (plus admins) can see the post in lists or by direct URL.
+  restrictedTeams Team[]         @relation("BulletinRestrictedTeams")
 
   @@index([pinned, createdAt])
 }
@@ -370,6 +378,9 @@ model Team {
   category   TeamCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
   slots      TeamSlot[]
   bans       TeamBan[]
+  /// Bulletins/Events that are restricted to this team's members.
+  restrictedBulletins BulletinPost[] @relation("BulletinRestrictedTeams")
+  restrictedEvents    Event[]        @relation("EventRestrictedTeams")
 
   @@index([categoryId])
 }
@@ -428,8 +439,16 @@ model Event {
   aarJson         Json?
   aarPostedAt     DateTime?
 
-  createdBy User        @relation(fields: [createdById], references: [id])
-  rsvps     EventRSVP[]
+  /// When false, no Discord webhook is fired on create / AAR drop.
+  postToDiscord   Boolean @default(true)
+  /// When false, the Discord post (if any) does NOT include @everyone.
+  pingEveryone    Boolean @default(true)
+
+  createdBy        User        @relation(fields: [createdById], references: [id])
+  rsvps            EventRSVP[]
+  /// Empty = visible to everyone. Non-empty = only members of any of these
+  /// teams (plus admins) can see the event in lists or by direct URL.
+  restrictedTeams  Team[]      @relation("EventRestrictedTeams")
 
   @@index([startsAt])
 }

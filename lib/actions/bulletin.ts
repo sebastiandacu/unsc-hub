@@ -5,7 +5,7 @@ import { redirect } from "next/navigation";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { requirePermission, requireUser } from "@/lib/auth/guards";
-import { notifyAllUsers } from "@/lib/notify";
+import { notifyAllUsers, notifyMany } from "@/lib/notify";
 import { absoluteUrl, postToDiscord } from "@/lib/discord-webhook";
 import { fanOutMentions } from "@/lib/mentions";
 
@@ -18,11 +18,45 @@ const createSchema = z.object({
   headerImageUrl: z.string().url().optional().nullable(),
   bannerImageUrl: z.string().url().optional().nullable(),
   pinned: z.boolean().optional(),
+  /// Visibility
+  postToDiscord: z.boolean().optional(),
+  pingEveryone: z.boolean().optional(),
+  /// Empty / undefined = public. Non-empty = restricted to members of these teams.
+  restrictedTeamIds: z.array(z.string()).optional(),
 });
+
+/**
+ * Resolve which users should get an in-app notification:
+ *   - public: all users (notifyAllUsers)
+ *   - restricted: holders of any slot in the restricted teams (deduped)
+ */
+async function notifyForBulletin(
+  restrictedTeamIds: string[],
+  exceptUserId: string,
+  payload: Parameters<typeof notifyMany>[1],
+) {
+  if (restrictedTeamIds.length === 0) {
+    await notifyAllUsers(payload, exceptUserId);
+    return;
+  }
+  const slots = await prisma.teamSlot.findMany({
+    where: { teamId: { in: restrictedTeamIds }, holderId: { not: null } },
+    select: { holderId: true },
+  });
+  const userIds = Array.from(
+    new Set(slots.map((s) => s.holderId!).filter((id) => id !== exceptUserId)),
+  );
+  if (userIds.length === 0) return;
+  await notifyMany(userIds, payload);
+}
 
 export async function createBulletin(input: z.infer<typeof createSchema>) {
   const user = await requirePermission("LICENSED");
   const data = createSchema.parse(input);
+  const postToDiscordFlag = data.postToDiscord ?? true;
+  const pingEveryoneFlag = data.pingEveryone ?? true;
+  const restrictedTeamIds = data.restrictedTeamIds ?? [];
+
   const post = await prisma.bulletinPost.create({
     data: {
       authorId: user.id,
@@ -31,31 +65,69 @@ export async function createBulletin(input: z.infer<typeof createSchema>) {
       headerImageUrl: data.headerImageUrl || null,
       bannerImageUrl: data.bannerImageUrl || null,
       pinned: !!data.pinned,
+      postToDiscord: postToDiscordFlag,
+      pingEveryone: pingEveryoneFlag,
+      restrictedTeams:
+        restrictedTeamIds.length > 0
+          ? { connect: restrictedTeamIds.map((id) => ({ id })) }
+          : undefined,
     },
   });
   await prisma.auditLog.create({
-    data: { actorId: user.id, action: "bulletin.create", targetType: "BulletinPost", targetId: post.id },
+    data: {
+      actorId: user.id,
+      action: "bulletin.create",
+      targetType: "BulletinPost",
+      targetId: post.id,
+      payloadJson: {
+        postToDiscord: postToDiscordFlag,
+        pingEveryone: pingEveryoneFlag,
+        restrictedTeamCount: restrictedTeamIds.length,
+      },
+    },
   });
 
-  // Fan out notifications + cross-post to Discord (best-effort, non-blocking on errors).
+  // Restricted bulletins get a "🔒" suffix in titles so it's obvious
+  // in feeds and Discord that this isn't a unit-wide post.
+  const restrictedSuffix = restrictedTeamIds.length > 0 ? " 🔒" : "";
+  const restrictedNames =
+    restrictedTeamIds.length > 0
+      ? (
+          await prisma.team.findMany({
+            where: { id: { in: restrictedTeamIds } },
+            select: { name: true },
+          })
+        )
+          .map((t) => t.name)
+          .join(", ")
+      : "";
+
   await Promise.allSettled([
-    notifyAllUsers(
-      {
-        kind: "bulletin.posted",
-        title: data.pinned ? `📌 Nuevo bulletin pineado: ${data.title}` : `Nuevo bulletin: ${data.title}`,
-        url: `/bulletin/${post.id}`,
-      },
-      user.id,
-    ),
-    postToDiscord(
-      {
-        title: data.pinned ? `📌 ${data.title}` : data.title,
-        description: `Nuevo boletín publicado por **${user.nickname ?? user.discordUsername ?? "Operativo"}**.\n\n**[Leer en el HUB →](${absoluteUrl(`/bulletin/${post.id}`)})**`,
-        url: absoluteUrl(`/bulletin/${post.id}`),
-        footer: "BOLETÍN · HUB",
-      },
-      { mentionEveryone: true },
-    ),
+    notifyForBulletin(restrictedTeamIds, user.id, {
+      kind: "bulletin.posted",
+      title: data.pinned
+        ? `📌 Boletín pineado${restrictedSuffix}: ${data.title}`
+        : `Nuevo boletín${restrictedSuffix}: ${data.title}`,
+      url: `/bulletin/${post.id}`,
+    }),
+    postToDiscordFlag
+      ? postToDiscord(
+          {
+            title: data.pinned ? `📌 ${data.title}${restrictedSuffix}` : `${data.title}${restrictedSuffix}`,
+            description: [
+              `Nuevo boletín publicado por **${user.nickname ?? user.discordUsername ?? "Operativo"}**.`,
+              restrictedNames ? `🔒 Restringido a: **${restrictedNames}**` : "",
+              "",
+              `**[Leer en el HUB →](${absoluteUrl(`/bulletin/${post.id}`)})**`,
+            ]
+              .filter(Boolean)
+              .join("\n"),
+            url: absoluteUrl(`/bulletin/${post.id}`),
+            footer: "BOLETÍN · HUB",
+          },
+          { mentionEveryone: pingEveryoneFlag && restrictedTeamIds.length === 0 },
+        )
+      : Promise.resolve(),
     fanOutMentions(data.bodyJson, {
       authorId: user.id,
       authorName: user.nickname ?? user.discordUsername ?? "Operative",
@@ -72,6 +144,8 @@ export async function createBulletin(input: z.infer<typeof createSchema>) {
 export async function updateBulletin(postId: string, input: z.infer<typeof createSchema>) {
   const user = await requirePermission("LICENSED");
   const data = createSchema.parse(input);
+  const restrictedTeamIds = data.restrictedTeamIds ?? [];
+
   await prisma.bulletinPost.update({
     where: { id: postId },
     data: {
@@ -80,6 +154,10 @@ export async function updateBulletin(postId: string, input: z.infer<typeof creat
       headerImageUrl: data.headerImageUrl || null,
       bannerImageUrl: data.bannerImageUrl || null,
       pinned: !!data.pinned,
+      postToDiscord: data.postToDiscord ?? true,
+      pingEveryone: data.pingEveryone ?? true,
+      // Replace the restricted-teams set entirely.
+      restrictedTeams: { set: restrictedTeamIds.map((id) => ({ id })) },
       editedAt: new Date(),
     },
   });

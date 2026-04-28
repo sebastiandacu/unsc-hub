@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import { RichEditor, type RichDoc } from "@/components/editor/RichEditor";
 import { ImageUploadButton } from "@/components/ImageUploadButton";
 import { createEvent, updateEvent, deleteEvent, announceEvent } from "@/lib/actions/events";
+import { VisibilityControls, type TeamOption } from "@/components/VisibilityControls";
 
 type EventInfo = {
   id: string;
@@ -16,6 +17,9 @@ type EventInfo = {
   bannerImageUrl: string | null;
   slidesEmbedUrl: string | null;
   rsvpCount: number;
+  postToDiscord: boolean;
+  pingEveryone: boolean;
+  restrictedTeamIds: string[];
 };
 
 function toLocalInput(d?: Date | null) {
@@ -25,7 +29,7 @@ function toLocalInput(d?: Date | null) {
   return new Date(date.getTime() - tz).toISOString().slice(0, 16);
 }
 
-export function ScheduleAdmin({ events }: { events: EventInfo[] }) {
+export function ScheduleAdmin({ events, teams }: { events: EventInfo[]; teams: TeamOption[] }) {
   const [editing, setEditing] = useState<string | "new" | null>(null);
 
   return (
@@ -37,7 +41,7 @@ export function ScheduleAdmin({ events }: { events: EventInfo[] }) {
       </div>
 
       {editing === "new" && (
-        <EventForm onDone={() => setEditing(null)} />
+        <EventForm teams={teams} onDone={() => setEditing(null)} />
       )}
 
       {events.length === 0 && editing !== "new" ? (
@@ -64,7 +68,7 @@ export function ScheduleAdmin({ events }: { events: EventInfo[] }) {
               </div>
               {editing === e.id && (
                 <div className="border-t border-[var(--color-border)] p-4">
-                  <EventForm initial={e} onDone={() => setEditing(null)} />
+                  <EventForm initial={e} teams={teams} onDone={() => setEditing(null)} />
                 </div>
               )}
             </div>
@@ -114,7 +118,7 @@ function AnnounceButton({ id, title }: { id: string; title: string }) {
   );
 }
 
-function EventForm({ initial, onDone }: { initial?: EventInfo; onDone: () => void }) {
+function EventForm({ initial, teams, onDone }: { initial?: EventInfo; teams: TeamOption[]; onDone: () => void }) {
   const [title, setTitle] = useState(initial?.title ?? "");
   const [startsAt, setStartsAt] = useState(toLocalInput(initial?.startsAt ? new Date(initial.startsAt) : new Date(Date.now() + 86400000)));
   const [endsAt, setEndsAt] = useState(initial?.endsAt ? toLocalInput(new Date(initial.endsAt)) : "");
@@ -123,6 +127,9 @@ function EventForm({ initial, onDone }: { initial?: EventInfo; onDone: () => voi
   const [headerImageUrl, setHeaderImageUrl] = useState<string | null>(initial?.headerImageUrl ?? null);
   const [bannerImageUrl, setBannerImageUrl] = useState<string | null>(initial?.bannerImageUrl ?? null);
   const [slidesEmbedUrl, setSlidesEmbedUrl] = useState<string>(initial?.slidesEmbedUrl ?? "");
+  const [postToDiscord, setPostToDiscord] = useState(initial?.postToDiscord ?? true);
+  const [pingEveryone, setPingEveryone] = useState(initial?.pingEveryone ?? true);
+  const [restrictedTeamIds, setRestrictedTeamIds] = useState<string[]>(initial?.restrictedTeamIds ?? []);
   const [pending, start] = useTransition();
   const [error, setError] = useState<string | null>(null);
 
@@ -144,6 +151,9 @@ function EventForm({ initial, onDone }: { initial?: EventInfo; onDone: () => voi
           headerImageUrl,
           bannerImageUrl,
           slidesEmbedUrl: slidesEmbedUrl.trim() || null,
+          postToDiscord,
+          pingEveryone,
+          restrictedTeamIds,
         };
         if (initial) await updateEvent(initial.id, payload);
         else await createEvent(payload);
@@ -190,6 +200,17 @@ function EventForm({ initial, onDone }: { initial?: EventInfo; onDone: () => voi
         <div className="label-mono mb-2">Briefing</div>
         <RichEditor value={briefingJson} onChange={setBriefingJson} placeholder="Briefing de la misión..." imageEndpoint="postImage" />
       </div>
+
+      <VisibilityControls
+        teams={teams}
+        postToDiscord={postToDiscord}
+        pingEveryone={pingEveryone}
+        restrictedTeamIds={restrictedTeamIds}
+        onPostToDiscord={setPostToDiscord}
+        onPingEveryone={setPingEveryone}
+        onRestrictedTeamIds={setRestrictedTeamIds}
+        scopeLabel="operación"
+      />
 
       {error && <div className="label-mono text-[var(--color-danger)]">{error}</div>}
       <div className="flex justify-end gap-2">

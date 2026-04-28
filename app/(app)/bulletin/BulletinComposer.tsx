@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import { RichEditor, type RichDoc } from "@/components/editor/RichEditor";
 import { ImageUploadButton } from "@/components/ImageUploadButton";
 import { createBulletin, updateBulletin } from "@/lib/actions/bulletin";
+import { VisibilityControls, type TeamOption } from "@/components/VisibilityControls";
 
 type Initial = {
   id?: string;
@@ -12,19 +13,39 @@ type Initial = {
   headerImageUrl: string | null;
   bannerImageUrl: string | null;
   pinned: boolean;
+  postToDiscord: boolean;
+  pingEveryone: boolean;
+  restrictedTeamIds: string[];
 };
 
-const EMPTY: Initial = { title: "", bodyJson: null, headerImageUrl: null, bannerImageUrl: null, pinned: false };
+const EMPTY: Initial = {
+  title: "",
+  bodyJson: null,
+  headerImageUrl: null,
+  bannerImageUrl: null,
+  pinned: false,
+  postToDiscord: true,
+  pingEveryone: true,
+  restrictedTeamIds: [],
+};
 
 export function BulletinComposer({
   mode,
   initial = EMPTY,
-}: { mode: "create" | "edit"; initial?: Initial }) {
+  teams,
+}: {
+  mode: "create" | "edit";
+  initial?: Initial;
+  teams: TeamOption[];
+}) {
   const [title, setTitle] = useState(initial.title);
   const [bodyJson, setBodyJson] = useState<RichDoc | null>(initial.bodyJson);
   const [headerImageUrl, setHeaderImageUrl] = useState<string | null>(initial.headerImageUrl);
   const [bannerImageUrl, setBannerImageUrl] = useState<string | null>(initial.bannerImageUrl);
   const [pinned, setPinned] = useState(initial.pinned);
+  const [postToDiscord, setPostToDiscord] = useState(initial.postToDiscord);
+  const [pingEveryone, setPingEveryone] = useState(initial.pingEveryone);
+  const [restrictedTeamIds, setRestrictedTeamIds] = useState<string[]>(initial.restrictedTeamIds);
   const [pending, start] = useTransition();
   const [error, setError] = useState<string | null>(null);
 
@@ -37,7 +58,16 @@ export function BulletinComposer({
     }
     start(async () => {
       try {
-        const payload = { title: title.trim(), bodyJson, headerImageUrl, bannerImageUrl, pinned };
+        const payload = {
+          title: title.trim(),
+          bodyJson,
+          headerImageUrl,
+          bannerImageUrl,
+          pinned,
+          postToDiscord,
+          pingEveryone,
+          restrictedTeamIds,
+        };
         if (mode === "create") await createBulletin(payload);
         else await updateBulletin(initial.id!, payload);
       } catch (e) {
@@ -80,6 +110,17 @@ export function BulletinComposer({
         <div className="label-mono mb-2">Cuerpo</div>
         <RichEditor value={bodyJson} onChange={setBodyJson} placeholder="Escribe el bulletin..." imageEndpoint="postImage" />
       </section>
+
+      <VisibilityControls
+        teams={teams}
+        postToDiscord={postToDiscord}
+        pingEveryone={pingEveryone}
+        restrictedTeamIds={restrictedTeamIds}
+        onPostToDiscord={setPostToDiscord}
+        onPingEveryone={setPingEveryone}
+        onRestrictedTeamIds={setRestrictedTeamIds}
+        scopeLabel="boletín"
+      />
 
       <section className="panel p-5 flex items-center gap-4">
         <label className="flex items-center gap-2 text-sm font-mono">

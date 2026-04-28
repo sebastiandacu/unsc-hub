@@ -2,12 +2,17 @@ import Link from "next/link";
 import { PageHeader } from "@/components/PageHeader";
 import { prisma } from "@/lib/db";
 import { requireUser, hasPermission } from "@/lib/auth/guards";
+import { bulletinVisibilityWhere } from "@/lib/visibility";
 
 export default async function BulletinPage() {
   const user = await requireUser();
+  const isAdmin = hasPermission(user, "ADMIN");
   const canPost = hasPermission(user, "LICENSED");
 
+  const visWhere = await bulletinVisibilityWhere(user.id, isAdmin);
+
   const posts = await prisma.bulletinPost.findMany({
+    where: visWhere,
     orderBy: [{ pinned: "desc" }, { createdAt: "desc" }],
     select: {
       id: true,
@@ -18,6 +23,7 @@ export default async function BulletinPage() {
       author: { select: { nickname: true, discordUsername: true } },
       _count: { select: { reads: true } },
       reads: { where: { userId: user.id }, select: { readAt: true } },
+      restrictedTeams: { select: { id: true, name: true } },
     },
   });
 
