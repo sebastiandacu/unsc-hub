@@ -177,6 +177,12 @@ function EventForm({ initial, teams, onDone }: { initial?: EventInfo; teams: Tea
           <input type="datetime-local" value={endsAt} onChange={(e) => setEndsAt(e.target.value)} className="w-full bg-[var(--color-base)] border border-[var(--color-border)] px-2 py-2" />
         </label>
       </div>
+      {startsAt && new Date(startsAt).getTime() < Date.now() && (
+        <div className="label-mono text-[var(--color-amber)] flex items-center gap-2">
+          <span className="size-1.5 bg-[var(--color-amber)] animate-pulse" />
+          Atención: la fecha de inicio ya pasó. Si lo anunciás, Discord lo va a mostrar como evento pasado.
+        </div>
+      )}
       <input value={location} onChange={(e) => setLocation(e.target.value)} placeholder="Ubicación" className="w-full bg-[var(--color-base)] border border-[var(--color-border)] px-2 py-2 font-mono text-xs" />
 
       <div>

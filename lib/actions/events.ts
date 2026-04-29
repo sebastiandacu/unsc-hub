@@ -30,7 +30,11 @@ function parseArgentinaInput(s: string): Date {
  */
 function discordTime(d: Date): string {
   const unix = Math.floor(d.getTime() / 1000);
-  return `<t:${unix}:F> · <t:${unix}:R>`;
+  // Future events get a relative "in 3 days" tag, past events skip it —
+  // a re-announce of an old event saying "a month ago" reads weird and
+  // makes admins think the bot is broken.
+  const isPast = d.getTime() < Date.now();
+  return isPast ? `<t:${unix}:F>` : `<t:${unix}:F> · <t:${unix}:R>`;
 }
 
 const eventSchema = z.object({
