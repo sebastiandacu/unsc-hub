@@ -273,7 +273,7 @@ function TeamCard({
         <div className="flex-1 min-w-0">
           <div className="font-mono">{team.name} {team.callsign && <span className="label-mono ml-2">{team.callsign}</span>}</div>
           <div className="label-mono mt-1">
-            {team.allowsMultiMembership ? "membresía múltiple" : "exclusivo"}
+            {team.allowsMultiMembership ? "no exclusivo" : "exclusivo"}
             {team.teamType === "OPERATIVE" ? " · operativo" : " · organizacional"}
             {team.minRankPriority !== null && ` · rango mín ${rankMap[team.minRankPriority] ?? `#${team.minRankPriority}`}`}
             {team.bans.length > 0 && ` · ${team.bans.length} baneados`}
@@ -705,9 +705,19 @@ function TeamForm({
           </button>
         )}
       </div>
-      <label className="flex items-center gap-2 sm:col-span-2">
-        <input type="checkbox" checked={multi} onChange={(e) => setMulti(e.target.checked)} />
-        Permitir membresía múltiple (un operativo puede ocupar varios slots del equipo)
+      <label className="flex items-start gap-2 sm:col-span-2 cursor-pointer">
+        <input
+          type="checkbox"
+          checked={multi}
+          onChange={(e) => setMulti(e.target.checked)}
+          className="mt-0.5"
+        />
+        <span>
+          <div>No exclusivo (el operativo puede estar en este equipo y en otros simultáneamente)</div>
+          <div className="text-[10.5px] text-[var(--color-text-dim)] normal-case tracking-normal mt-0.5 leading-relaxed">
+            Si lo dejás sin tildar (exclusivo), unirse a este equipo libera al operativo de cualquier otro equipo donde estuviera (con confirmación).
+          </div>
+        </span>
       </label>
       {error && (
         <div className="sm:col-span-2 label-mono text-[var(--color-danger)]">{error}</div>

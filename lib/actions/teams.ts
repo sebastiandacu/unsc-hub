@@ -363,15 +363,41 @@ export async function joinSlot(slotId: string, confirmRelease = false): Promise<
   const gate = await checkRankGate(user.id, slot.team.minRankPriority, slot.minRankPriority);
   if (gate) return { ok: false, error: gate };
 
-  if (!slot.team.allowsMultiMembership) {
-    const existing = await prisma.teamSlot.findFirst({
-      where: { teamId: slot.teamId, holderId: user.id },
+  // Always release any other slot the user holds in THIS team (1 slot
+  // per team max — having "Sniper" + "Medic" of the same fireteam doesn't
+  // make sense). This is silent — it's a swap, not an exclusivity violation.
+  const sameTeamExisting = await prisma.teamSlot.findFirst({
+    where: { teamId: slot.teamId, holderId: user.id },
+  });
+  if (sameTeamExisting) {
+    await prisma.teamSlot.update({ where: { id: sameTeamExisting.id }, data: { holderId: null } });
+  }
+
+  // Exclusivity check: if THIS team is exclusive (allowsMultiMembership=false),
+  // joining requires releasing every other team the user holds anywhere else.
+  // We surface the names of those teams so the user knows what they're losing.
+  const otherTeamSlots = !slot.team.allowsMultiMembership
+    ? await prisma.teamSlot.findMany({
+        where: { holderId: user.id, teamId: { not: slot.teamId } },
+        include: { team: { select: { id: true, name: true, allowsMultiMembership: true } } },
+      })
+    : [];
+  if (otherTeamSlots.length > 0 && !confirmRelease) {
+    const names = Array.from(new Set(otherTeamSlots.map((s) => s.team.name))).join(", ");
+    return {
+      ok: false,
+      warn: `${slot.team.name} es exclusivo. Unirte libera tu lugar en: ${names}. Confirmá para continuar.`,
+    };
+  }
+  if (otherTeamSlots.length > 0) {
+    // Release every other slot AND sync Discord roles for each affected team.
+    await prisma.teamSlot.updateMany({
+      where: { id: { in: otherTeamSlots.map((s) => s.id) } },
+      data: { holderId: null },
     });
-    if (existing && !confirmRelease) {
-      return { ok: false, warn: `You already hold "${existing.title}" on ${slot.team.name}. Joining "${slot.title}" releases the previous slot.` };
-    }
-    if (existing) {
-      await prisma.teamSlot.update({ where: { id: existing.id }, data: { holderId: null } });
+    const affectedTeamIds = Array.from(new Set(otherTeamSlots.map((s) => s.teamId)));
+    for (const teamId of affectedTeamIds) {
+      await syncMemberLeftTeam(user.id, teamId);
     }
   }
 
@@ -459,18 +485,31 @@ export async function reviewApplication(applicationId: string, approve: boolean,
   const trimmedNote = note?.trim().slice(0, 500) || null;
 
   if (approve) {
+    // Always release any other slot in the SAME team (1 slot per team).
+    await prisma.teamSlot.updateMany({
+      where: { teamId: app.slot.teamId, holderId: app.applicantId },
+      data: { holderId: null },
+    });
+
+    // Exclusivity: if this team is exclusive, release the applicant from
+    // every other team and sync each Discord role removal.
     if (!app.slot.team.allowsMultiMembership) {
-      // Find the previous slot they're being released from to sync Discord later.
-      const previous = await prisma.teamSlot.findFirst({
-        where: { teamId: app.slot.teamId, holderId: app.applicantId },
+      const otherTeamSlots = await prisma.teamSlot.findMany({
+        where: { holderId: app.applicantId, teamId: { not: app.slot.teamId } },
+        select: { id: true, teamId: true },
       });
-      if (previous) {
+      if (otherTeamSlots.length > 0) {
         await prisma.teamSlot.updateMany({
-          where: { teamId: app.slot.teamId, holderId: app.applicantId },
+          where: { id: { in: otherTeamSlots.map((s) => s.id) } },
           data: { holderId: null },
         });
+        const affectedTeamIds = Array.from(new Set(otherTeamSlots.map((s) => s.teamId)));
+        for (const teamId of affectedTeamIds) {
+          await syncMemberLeftTeam(app.applicantId, teamId);
+        }
       }
     }
+
     await prisma.teamSlot.update({ where: { id: app.slotId }, data: { holderId: app.applicantId } });
     // Discord sync: add team + category roles.
     await syncMemberJoinedTeam(app.applicantId, app.slot.teamId);
@@ -550,11 +589,29 @@ export async function adminAssignToSlot(slotId: string, userId: string) {
   });
   if (banned) throw new Error("User is banned from this team.");
 
+  // Always release any other slot in this same team (1 slot per team).
+  await prisma.teamSlot.updateMany({
+    where: { teamId: slot.teamId, holderId: userId },
+    data: { holderId: null },
+  });
+
+  // Exclusivity: if this team is exclusive, also release the user from
+  // any other team they're holding a slot in.
   if (!slot.team.allowsMultiMembership) {
-    await prisma.teamSlot.updateMany({
-      where: { teamId: slot.teamId, holderId: userId },
-      data: { holderId: null },
+    const otherTeamSlots = await prisma.teamSlot.findMany({
+      where: { holderId: userId, teamId: { not: slot.teamId } },
+      select: { id: true, teamId: true },
     });
+    if (otherTeamSlots.length > 0) {
+      await prisma.teamSlot.updateMany({
+        where: { id: { in: otherTeamSlots.map((s) => s.id) } },
+        data: { holderId: null },
+      });
+      const affectedTeamIds = Array.from(new Set(otherTeamSlots.map((s) => s.teamId)));
+      for (const teamId of affectedTeamIds) {
+        await syncMemberLeftTeam(userId, teamId);
+      }
+    }
   }
 
   await prisma.teamSlot.update({ where: { id: slotId }, data: { holderId: userId } });
