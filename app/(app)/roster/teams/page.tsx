@@ -35,6 +35,10 @@ export default async function TeamsListPage() {
       orderBy: [{ createdAt: "asc" }],
       include: {
         slots: {
+          // Order by sortOrder then by id (cuid is time-ordered) so the
+          // first slot in the array is always the leader slot — "Actual"
+          // for organizational teams, "-1" for operative teams.
+          orderBy: [{ sortOrder: "asc" }, { id: "asc" }],
           select: {
             id: true,
             holderId: true,
@@ -194,7 +198,10 @@ function CategorySection({
 function TeamCard({ team: t }: { team: TeamRow }) {
   const filled = t.slots.filter((s) => s.holderId).length;
   const pct = t.slots.length === 0 ? 0 : Math.round((filled / t.slots.length) * 100);
-  const leader = t.slots.find((s) => s.holder)?.holder;
+  // Leader = whoever holds the FIRST slot specifically (the leader slot).
+  // If that slot is vacant we show "—" instead of promoting a junior op
+  // who happens to hold a later slot.
+  const leader = t.slots[0]?.holder ?? null;
   const leaderName = leader?.nickname ?? leader?.discordUsername ?? "—";
   const initial = (t.callsign ?? t.name).trim()[0]?.toUpperCase() ?? "U";
 
