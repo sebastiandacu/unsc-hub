@@ -12,6 +12,20 @@ import { fanOutMentions } from "@/lib/mentions";
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const docSchema: z.ZodType<any> = z.record(z.string(), z.any());
 
+/**
+ * Tiptap converts pasted images to base64 data URLs which inflate the
+ * payload to multi-MB and crash Server Actions / Postgres writes with
+ * cryptic Prisma errors. Reject early with a clear message.
+ */
+function rejectBase64Images(doc: unknown): void {
+  const seen = JSON.stringify(doc);
+  if (seen.includes('"src":"data:image')) {
+    throw new Error(
+      "Detecté imágenes pegadas en el cuerpo (data: URLs). Pegar imágenes del portapapeles infla el post a varios MB y rompe el guardado. Usá el botón de subir imagen del editor para cada una.",
+    );
+  }
+}
+
 const createSchema = z.object({
   title: z.string().trim().min(1).max(200),
   bodyJson: docSchema,
@@ -53,6 +67,7 @@ async function notifyForBulletin(
 export async function createBulletin(input: z.infer<typeof createSchema>) {
   const user = await requirePermission("LICENSED");
   const data = createSchema.parse(input);
+  rejectBase64Images(data.bodyJson);
   const postToDiscordFlag = data.postToDiscord ?? true;
   const pingEveryoneFlag = data.pingEveryone ?? true;
   const restrictedTeamIds = data.restrictedTeamIds ?? [];
@@ -144,6 +159,7 @@ export async function createBulletin(input: z.infer<typeof createSchema>) {
 export async function updateBulletin(postId: string, input: z.infer<typeof createSchema>) {
   const user = await requirePermission("LICENSED");
   const data = createSchema.parse(input);
+  rejectBase64Images(data.bodyJson);
   const restrictedTeamIds = data.restrictedTeamIds ?? [];
 
   await prisma.bulletinPost.update({

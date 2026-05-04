@@ -18,9 +18,26 @@ const threadSchema = z.object({
   bannerImageUrl: z.string().url().optional().nullable(),
 });
 
+/**
+ * Tiptap converts pasted images into <img src="data:image/...;base64,...">.
+ * Even a few pasted screenshots inflate the bodyJson into multi-MB
+ * payloads that fail Server Action body limits + Postgres JSON writes
+ * with cryptic Prisma errors. We reject early with a clear message that
+ * tells the user to use the upload button instead.
+ */
+function rejectBase64Images(doc: unknown): void {
+  const seen = JSON.stringify(doc);
+  if (seen.includes('"src":"data:image')) {
+    throw new Error(
+      "Detecté imágenes pegadas en el cuerpo (data: URLs). Pegar imágenes del portapapeles infla el post a varios MB y rompe el guardado. Usá el botón de subir imagen del editor para cada una.",
+    );
+  }
+}
+
 export async function createThread(input: z.infer<typeof threadSchema>) {
   const user = await requireUser();
   const data = threadSchema.parse(input);
+  rejectBase64Images(data.bodyJson);
   const category = await prisma.wallCategory.findUnique({ where: { slug: data.categorySlug } });
   if (!category) throw new Error("Category not found");
   const thread = await prisma.wallThread.create({
@@ -52,6 +69,7 @@ const replySchema = z.object({
 export async function postReply(input: z.infer<typeof replySchema>) {
   const user = await requireUser();
   const data = replySchema.parse(input);
+  rejectBase64Images(data.bodyJson);
   const thread = await prisma.wallThread.findUnique({
     where: { id: data.threadId },
     select: { lockedByAdminId: true, category: { select: { slug: true } } },
@@ -127,6 +145,7 @@ const threadEditSchema = z.object({
 export async function updateThread(threadId: string, input: z.infer<typeof threadEditSchema>) {
   const user = await requireUser();
   const data = threadEditSchema.parse(input);
+  rejectBase64Images(data.bodyJson);
   const thread = await prisma.wallThread.findUnique({
     where: { id: threadId },
     select: { authorId: true, category: { select: { slug: true } } },
@@ -158,6 +177,7 @@ const replyEditSchema = z.object({
 export async function updateReply(replyId: string, input: z.infer<typeof replyEditSchema>) {
   const user = await requireUser();
   const data = replyEditSchema.parse(input);
+  rejectBase64Images(data.bodyJson);
   const reply = await prisma.wallReply.findUnique({
     where: { id: replyId },
     include: { thread: { select: { id: true, category: { select: { slug: true } } } } },
