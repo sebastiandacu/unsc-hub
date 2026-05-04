@@ -370,3 +370,134 @@ export async function isGuildMember(userDiscordId: string): Promise<boolean> {
     throw e;
   }
 }
+
+// ============================================================
+// CHANNEL MESSAGES (rich embeds + interactive components)
+// ============================================================
+
+export type DiscordEmbedField = { name: string; value: string; inline?: boolean };
+export type DiscordEmbed = {
+  title?: string;
+  description?: string;
+  url?: string;
+  color?: number;
+  image?: { url: string };
+  thumbnail?: { url: string };
+  fields?: DiscordEmbedField[];
+  footer?: { text: string };
+  timestamp?: string;
+};
+
+/**
+ * Discord component types we use:
+ *   1 = ACTION_ROW (container)
+ *   2 = BUTTON
+ * Button styles: 1=PRIMARY 2=SECONDARY 3=SUCCESS 4=DANGER 5=LINK
+ */
+export type DiscordButton = {
+  type: 2;
+  style: 1 | 2 | 3 | 4 | 5;
+  label: string;
+  custom_id?: string; // required for non-link buttons
+  url?: string;       // required for style 5
+  emoji?: { name: string };
+  disabled?: boolean;
+};
+export type DiscordActionRow = {
+  type: 1;
+  components: DiscordButton[];
+};
+
+export type DiscordMessagePayload = {
+  content?: string;
+  embeds?: DiscordEmbed[];
+  components?: DiscordActionRow[];
+  allowed_mentions?: {
+    parse?: ("everyone" | "users" | "roles")[];
+  };
+};
+
+export type DiscordMessage = {
+  id: string;
+  channel_id: string;
+};
+
+export async function sendChannelMessage(
+  channelId: string,
+  payload: DiscordMessagePayload,
+): Promise<DiscordMessage> {
+  return botFetch<DiscordMessage>(`/channels/${channelId}/messages`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function editChannelMessage(
+  channelId: string,
+  messageId: string,
+  payload: DiscordMessagePayload,
+): Promise<DiscordMessage> {
+  return botFetch<DiscordMessage>(
+    `/channels/${channelId}/messages/${messageId}`,
+    {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    },
+  );
+}
+
+export async function deleteChannelMessage(
+  channelId: string,
+  messageId: string,
+): Promise<void> {
+  await botFetch(`/channels/${channelId}/messages/${messageId}`, {
+    method: "DELETE",
+  });
+}
+
+// ============================================================
+// INTERACTIONS — signature verification (Ed25519 via Node crypto)
+// ============================================================
+
+import { createPublicKey, verify as cryptoVerify } from "node:crypto";
+
+/**
+ * Convert Discord's hex Ed25519 public key into a Node KeyObject (SPKI DER).
+ * Cached because we get a public key once at boot and reuse it forever.
+ */
+let cachedKey: ReturnType<typeof createPublicKey> | null = null;
+function getInteractionPublicKey() {
+  if (cachedKey) return cachedKey;
+  const hex = process.env.DISCORD_PUBLIC_KEY;
+  if (!hex) throw new Error("DISCORD_PUBLIC_KEY not configured");
+  // Ed25519 SPKI DER prefix + the 32-byte raw key.
+  const raw = Buffer.from(hex, "hex");
+  if (raw.length !== 32) throw new Error("DISCORD_PUBLIC_KEY must be 32 bytes (64 hex chars)");
+  const der = Buffer.concat([
+    Buffer.from("302a300506032b6570032100", "hex"), // SPKI Ed25519 prefix
+    raw,
+  ]);
+  cachedKey = createPublicKey({ key: der, format: "der", type: "spki" });
+  return cachedKey;
+}
+
+/**
+ * Verify an inbound Discord interaction. Discord includes:
+ *   X-Signature-Ed25519     — hex
+ *   X-Signature-Timestamp   — string (unix seconds)
+ * Signed payload is `timestamp + rawBody`.
+ */
+export function verifyInteractionSignature(
+  signatureHex: string,
+  timestamp: string,
+  rawBody: string,
+): boolean {
+  try {
+    const sig = Buffer.from(signatureHex, "hex");
+    if (sig.length !== 64) return false;
+    const message = Buffer.from(timestamp + rawBody);
+    return cryptoVerify(null, message, getInteractionPublicKey(), sig);
+  } catch {
+    return false;
+  }
+}

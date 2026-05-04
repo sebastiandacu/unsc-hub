@@ -444,6 +444,11 @@ model Event {
   /// When false, the Discord post (if any) does NOT include @everyone.
   pingEveryone    Boolean @default(true)
 
+  /// Channel + message of the bot-sent announcement; used to edit the
+  /// embed in place when RSVPs change or AAR drops.
+  discordChannelId String?
+  discordMessageId String?
+
   createdBy        User        @relation(fields: [createdById], references: [id])
   rsvps            EventRSVP[]
   /// Empty = visible to everyone. Non-empty = only members of any of these

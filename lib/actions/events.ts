@@ -6,6 +6,7 @@ import { prisma } from "@/lib/db";
 import { requireAdmin, requireUser } from "@/lib/auth/guards";
 import { notifyAllUsers } from "@/lib/notify";
 import { absoluteUrl, postToDiscord } from "@/lib/discord-webhook";
+import { postEventToDiscord, refreshEventDiscordMessage } from "@/lib/discord-event-message";
 import type { RsvpStatus, EventOutcome } from "@prisma/client";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -124,17 +125,6 @@ export async function createEvent(input: z.infer<typeof eventSchema>) {
   });
   const eventPath = `/roster/schedule?event=${event.id}`;
   const restrictedSuffix = restrictedTeamIds.length > 0 ? " 🔒" : "";
-  const restrictedNames =
-    restrictedTeamIds.length > 0
-      ? (
-          await prisma.team.findMany({
-            where: { id: { in: restrictedTeamIds } },
-            select: { name: true },
-          })
-        )
-          .map((t) => t.name)
-          .join(", ")
-      : "";
 
   await Promise.allSettled([
     notifyForEvent(restrictedTeamIds, admin.id, {
@@ -143,30 +133,29 @@ export async function createEvent(input: z.infer<typeof eventSchema>) {
       body: `${whenAR} (ART)${data.location ? ` · ${data.location}` : ""}`,
       url: eventPath,
     }),
+    // Bot-sent rich message with embed + RSVP buttons. Falls back to
+    // the legacy webhook if the schedule channel isn't configured.
     postToDiscordFlag
-      ? postToDiscord(
-          {
-            title: `📅 ${data.title}${restrictedSuffix}`,
-            description: [
-              "Nueva operación programada.",
-              restrictedNames ? `🔒 Restringida a: **${restrictedNames}**` : "",
-              "",
-              `**[Ver briefing completo →](${absoluteUrl(eventPath)})**`,
-            ]
-              .filter(Boolean)
-              .join("\n"),
-            url: absoluteUrl(eventPath),
-            fields: [
-              { name: "Cuándo (tu hora local)", value: discordTime(startDate), inline: false },
-              ...(data.location ? [{ name: "Dónde", value: data.location, inline: true }] : []),
-            ],
-            footer: "OPERATION · HUB",
-          },
-          {
-            webhookUrl: process.env.DISCORD_SCHEDULE_WEBHOOK_URL,
-            mentionEveryone: pingEveryoneFlag && restrictedTeamIds.length === 0,
-          },
-        )
+      ? (process.env.DISCORD_SCHEDULE_CHANNEL_ID
+          ? postEventToDiscord(event.id, {
+              mentionEveryone: pingEveryoneFlag && restrictedTeamIds.length === 0,
+            })
+          : postToDiscord(
+              {
+                title: `📅 ${data.title}${restrictedSuffix}`,
+                description: `Nueva operación programada.\n\n**[Ver briefing completo →](${absoluteUrl(eventPath)})**`,
+                url: absoluteUrl(eventPath),
+                fields: [
+                  { name: "Cuándo (tu hora local)", value: discordTime(startDate), inline: false },
+                  ...(data.location ? [{ name: "Dónde", value: data.location, inline: true }] : []),
+                ],
+                footer: "OPERATION · HUB",
+              },
+              {
+                webhookUrl: process.env.DISCORD_SCHEDULE_WEBHOOK_URL,
+                mentionEveryone: pingEveryoneFlag && restrictedTeamIds.length === 0,
+              },
+            ))
       : Promise.resolve(),
   ]);
 
@@ -274,6 +263,10 @@ export async function setEventOutcome(eventId: string, input: z.infer<typeof aar
     ]);
   }
 
+  // AAR drop / outcome change → repaint the Discord message so the
+  // embed color + footer reflect the new outcome.
+  await refreshEventDiscordMessage(eventId);
+
   revalidatePath("/roster/schedule");
   revalidatePath("/admin/schedule");
 }
@@ -307,22 +300,24 @@ export async function announceEvent(eventId: string) {
       },
       admin.id,
     ),
-    postToDiscord(
-      {
-        title: `📅 ${event.title}`,
-        description: `Operación programada.\n\n**[Ver briefing completo →](${absoluteUrl(eventPath)})**`,
-        url: absoluteUrl(eventPath),
-        fields: [
-          { name: "Cuándo (tu hora local)", value: discordTime(event.startsAt), inline: false },
-          ...(event.location ? [{ name: "Dónde", value: event.location, inline: true }] : []),
-        ],
-        footer: "OPERATION · HUB",
-      },
-      {
-        webhookUrl: process.env.DISCORD_SCHEDULE_WEBHOOK_URL,
-        mentionEveryone: true,
-      },
-    ),
+    process.env.DISCORD_SCHEDULE_CHANNEL_ID
+      ? postEventToDiscord(event.id, { mentionEveryone: true })
+      : postToDiscord(
+          {
+            title: `📅 ${event.title}`,
+            description: `Operación programada.\n\n**[Ver briefing completo →](${absoluteUrl(eventPath)})**`,
+            url: absoluteUrl(eventPath),
+            fields: [
+              { name: "Cuándo (tu hora local)", value: discordTime(event.startsAt), inline: false },
+              ...(event.location ? [{ name: "Dónde", value: event.location, inline: true }] : []),
+            ],
+            footer: "OPERATION · HUB",
+          },
+          {
+            webhookUrl: process.env.DISCORD_SCHEDULE_WEBHOOK_URL,
+            mentionEveryone: true,
+          },
+        ),
   ]);
 
   await prisma.auditLog.create({
@@ -337,5 +332,26 @@ export async function setRsvp(eventId: string, status: RsvpStatus) {
     create: { eventId, userId: user.id, status },
     update: { status, setAt: new Date() },
   });
+  // Push the new tally to Discord (best-effort).
+  await refreshEventDiscordMessage(eventId);
+  revalidatePath("/roster/schedule");
+}
+
+/**
+ * Server-side equivalent of setRsvp called from the Discord interaction
+ * handler — does the same DB upsert + Discord refresh, but takes a
+ * userId directly instead of pulling from the session.
+ */
+export async function setRsvpFromDiscord(
+  eventId: string,
+  userId: string,
+  status: RsvpStatus,
+): Promise<void> {
+  await prisma.eventRSVP.upsert({
+    where: { eventId_userId: { eventId, userId } },
+    create: { eventId, userId, status },
+    update: { status, setAt: new Date() },
+  });
+  await refreshEventDiscordMessage(eventId);
   revalidatePath("/roster/schedule");
 }
