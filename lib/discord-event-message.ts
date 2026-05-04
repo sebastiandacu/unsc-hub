@@ -11,6 +11,7 @@ import {
   editChannelMessage,
   type DiscordMessagePayload,
   type DiscordEmbed,
+  type DiscordEmbedField,
   type DiscordActionRow,
 } from "@/lib/discord-bot";
 import { absoluteUrl } from "@/lib/discord-webhook";
@@ -61,9 +62,30 @@ function discordTime(d: Date): string {
 }
 
 type EventForMessage = Event & {
-  rsvps: Pick<EventRSVP, "status">[];
+  rsvps: Array<
+    Pick<EventRSVP, "status"> & {
+      user: { nickname: string | null; discordUsername: string | null };
+    }
+  >;
   restrictedTeams?: { name: string }[];
 };
+
+/** Render a list of voter display names for one RSVP column. */
+function renderVoterList(
+  rsvps: EventForMessage["rsvps"],
+  status: "GOING" | "MAYBE" | "DECLINED",
+): string {
+  const names = rsvps
+    .filter((r) => r.status === status)
+    .map((r) => r.user.nickname ?? r.user.discordUsername ?? "Operativo")
+    .map((n) => `"${n}"`);
+  if (names.length === 0) return "_—_";
+  // Discord field value cap is 1024 chars — truncate gracefully.
+  const MAX = 12;
+  if (names.length <= MAX) return names.join("\n");
+  const visible = names.slice(0, MAX).join("\n");
+  return `${visible}\n_+${names.length - MAX} más_`;
+}
 
 /**
  * Build the full payload (embed + buttons + content) for an event.
@@ -81,13 +103,25 @@ export function buildEventMessage(
   const maybe = ev.rsvps.filter((r) => r.status === "MAYBE").length;
   const declined = ev.rsvps.filter((r) => r.status === "DECLINED").length;
 
-  const fields = [
+  const fields: DiscordEmbedField[] = [
     { name: "📅 Cuándo (tu hora local)", value: discordTime(ev.startsAt), inline: false },
-    ...(ev.location ? [{ name: "📍 Dónde", value: ev.location, inline: true }] : []),
+    ...(ev.location ? [{ name: "📍 Dónde", value: ev.location, inline: false }] : []),
+    // Three inline columns mirroring the Sesh-style attendance block:
+    // names listed under each status with the count in the column header.
     {
-      name: "📊 Asistencia",
-      value: `✅ Voy: **${going}**  ·  ❓ Tal vez: **${maybe}**  ·  ❌ No voy: **${declined}**`,
-      inline: false,
+      name: `✅ Voy (${going})`,
+      value: renderVoterList(ev.rsvps, "GOING"),
+      inline: true,
+    },
+    {
+      name: `❌ No voy (${declined})`,
+      value: renderVoterList(ev.rsvps, "DECLINED"),
+      inline: true,
+    },
+    {
+      name: `❓ Tal vez (${maybe})`,
+      value: renderVoterList(ev.rsvps, "MAYBE"),
+      inline: true,
     },
     ...(restrictedNames
       ? [{ name: "🔒 Restringida a", value: restrictedNames, inline: false }]
@@ -106,8 +140,14 @@ export function buildEventMessage(
     url,
     color: colorForOutcome(ev.outcome),
     fields,
-    image: ev.bannerImageUrl ? { url: ev.bannerImageUrl } : undefined,
-    thumbnail: ev.headerImageUrl ? { url: ev.headerImageUrl } : undefined,
+    // Big header image only — no thumbnail in the corner. Prefer the
+    // banner field (wider/hero ratio); fall back to the header image
+    // if no banner was uploaded.
+    image: ev.bannerImageUrl
+      ? { url: ev.bannerImageUrl }
+      : ev.headerImageUrl
+        ? { url: ev.headerImageUrl }
+        : undefined,
     footer: {
       text: ev.outcome !== "PENDING"
         ? `OPERATION · HUB · resultado: ${ev.outcome}`
@@ -186,7 +226,12 @@ export async function postEventToDiscord(
   const ev = await prisma.event.findUnique({
     where: { id: eventId },
     include: {
-      rsvps: { select: { status: true } },
+      rsvps: {
+        select: {
+          status: true,
+          user: { select: { nickname: true, discordUsername: true } },
+        },
+      },
       restrictedTeams: { select: { name: true } },
     },
   });
@@ -210,7 +255,12 @@ export async function refreshEventDiscordMessage(eventId: string): Promise<void>
   const ev = await prisma.event.findUnique({
     where: { id: eventId },
     include: {
-      rsvps: { select: { status: true } },
+      rsvps: {
+        select: {
+          status: true,
+          user: { select: { nickname: true, discordUsername: true } },
+        },
+      },
       restrictedTeams: { select: { name: true } },
     },
   });
