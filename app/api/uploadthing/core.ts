@@ -23,7 +23,7 @@ async function requireAdminUser(userId: string) {
 }
 
 export const ourFileRouter = {
-  avatar: f({ image: { maxFileSize: "2MB", maxFileCount: 1 } })
+  avatar: f({ image: { maxFileSize: "8MB", maxFileCount: 1 } })
     .middleware(async () => ({ userId: await requireSession() }))
     .onUploadComplete(async ({ metadata, file }) => {
       await prisma.user.update({ where: { id: metadata.userId }, data: { avatarUrl: file.ufsUrl } });
