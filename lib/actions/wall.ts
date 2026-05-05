@@ -24,12 +24,21 @@ const threadSchema = z.object({
  * payloads that fail Server Action body limits + Postgres JSON writes
  * with cryptic Prisma errors. We reject early with a clear message that
  * tells the user to use the upload button instead.
+ *
+ * Also catches the bytesize-without-base64 case (e.g. a giant base64
+ * pasted as plain text in a paragraph) by rejecting any single doc
+ * over 5MB of serialized JSON.
  */
 function rejectBase64Images(doc: unknown): void {
   const seen = JSON.stringify(doc);
-  if (seen.includes('"src":"data:image')) {
+  if (seen.includes("data:image") || seen.includes("data:application")) {
     throw new Error(
-      "Detecté imágenes pegadas en el cuerpo (data: URLs). Pegar imágenes del portapapeles infla el post a varios MB y rompe el guardado. Usá el botón de subir imagen del editor para cada una.",
+      "Detecté contenido binario pegado en el cuerpo (data: URLs). Pegar imágenes/archivos del portapapeles infla el post a varios MB y rompe el guardado. Usá el botón 📷 del editor para subir las imágenes.",
+    );
+  }
+  if (seen.length > 5_000_000) {
+    throw new Error(
+      `El cuerpo del post pesa ${(seen.length / 1_000_000).toFixed(1)} MB, demasiado para guardar. Achicalo o dividilo en varios posts.`,
     );
   }
 }
