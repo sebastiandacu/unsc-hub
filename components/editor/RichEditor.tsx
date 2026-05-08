@@ -35,7 +35,15 @@ export function RichEditor({
         class: "prose-rich min-h-[200px] focus:outline-none px-3 py-2 font-mono text-sm",
       },
     },
-    onUpdate: ({ editor }) => onChange(editor.getJSON()),
+    // JSON.parse(JSON.stringify(...)) strips any non-plain-JS that Tiptap
+    // might attach to nodes (proxies, getters, prototype methods). React
+    // 19's Server Action serializer is strict and throws "Cannot access
+    // <prop> on the server / temporary client reference" when it encounters
+    // those — even though our doc looks like plain JSON. The round-trip
+    // here guarantees the value sent to onChange (and ultimately to the
+    // Server Action) is pure plain JSON.
+    onUpdate: ({ editor }) =>
+      onChange(JSON.parse(JSON.stringify(editor.getJSON())) as RichDoc),
   });
 
   // Resync if value changes from outside (rare).
@@ -48,7 +56,18 @@ export function RichEditor({
   }, [editor]);
 
   const insertImage = useCallback(
-    (url: string) => editor?.chain().focus().setImage({ src: url }).run(),
+    (url: string) => {
+      // Coerce to a plain primitive string before handing to Tiptap.
+      // UploadThing's response objects sometimes wrap fields in proxies
+      // and Tiptap stores attrs by reference, which then trips React 19
+      // serializer. `String(...).slice()` forces a copy of just the bytes.
+      const cleanSrc = String(url ?? "").slice(0);
+      if (!cleanSrc) {
+        console.warn("[insertImage] empty url, skipping");
+        return;
+      }
+      editor?.chain().focus().setImage({ src: cleanSrc }).run();
+    },
     [editor],
   );
 
