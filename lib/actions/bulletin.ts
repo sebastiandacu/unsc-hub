@@ -29,6 +29,22 @@ function rejectBase64Images(doc: unknown): void {
       `El cuerpo del post pesa ${(seen.length / 1_000_000).toFixed(1)} MB, demasiado para guardar. Achicalo o dividilo en varios posts.`,
     );
   }
+  let brokenImages = 0;
+  const walk = (n: unknown): void => {
+    if (!n || typeof n !== "object") return;
+    const node = n as { type?: string; attrs?: { src?: string }; content?: unknown[] };
+    if (node.type === "image") {
+      const src = typeof node.attrs?.src === "string" ? node.attrs.src.trim() : "";
+      if (!src) brokenImages++;
+    }
+    if (Array.isArray(node.content)) node.content.forEach(walk);
+  };
+  walk(doc);
+  if (brokenImages > 0) {
+    throw new Error(
+      `Hay ${brokenImages} ${brokenImages === 1 ? "imagen" : "imágenes"} en tu post sin URL — las pegaste de un lugar donde Tiptap no puede levantar el src. Eliminálas y subilas usando el botón 📷 del editor.`,
+    );
+  }
 }
 
 const createSchema = z.object({

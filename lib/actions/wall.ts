@@ -41,6 +41,30 @@ function rejectBase64Images(doc: unknown): void {
       `El cuerpo del post pesa ${(seen.length / 1_000_000).toFixed(1)} MB, demasiado para guardar. Achicalo o dividilo en varios posts.`,
     );
   }
+  // Image nodes that lost their src — usually from pasting from Drive or
+  // a context where Tiptap couldn't capture the URL. The post would publish
+  // but render with invisible placeholders, which is worse than failing.
+  const broken = countImagesWithoutSrc(doc);
+  if (broken > 0) {
+    throw new Error(
+      `Hay ${broken} ${broken === 1 ? "imagen" : "imágenes"} en tu post sin URL — las pegaste de un lugar (Drive, Google Photos, etc.) donde Tiptap no puede levantar el src. Eliminálas del cuerpo y subilas usando el botón 📷 del editor.`,
+    );
+  }
+}
+
+function countImagesWithoutSrc(doc: unknown): number {
+  let count = 0;
+  const walk = (n: unknown): void => {
+    if (!n || typeof n !== "object") return;
+    const node = n as { type?: string; attrs?: { src?: string }; content?: unknown[] };
+    if (node.type === "image") {
+      const src = typeof node.attrs?.src === "string" ? node.attrs.src.trim() : "";
+      if (!src) count++;
+    }
+    if (Array.isArray(node.content)) node.content.forEach(walk);
+  };
+  walk(doc);
+  return count;
 }
 
 export async function createThread(input: z.infer<typeof threadSchema>) {
