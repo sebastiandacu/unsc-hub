@@ -73,6 +73,8 @@ export async function createBulletin(input: z.infer<typeof createSchema>) {
   const user = await requirePermission("LICENSED");
   const data = createSchema.parse(input);
   rejectBase64Images(data.bodyJson);
+  // Strip any non-plain-object refs surviving the RSC boundary.
+  data.bodyJson = JSON.parse(JSON.stringify(data.bodyJson));
   const postToDiscordFlag = data.postToDiscord ?? true;
   const pingEveryoneFlag = data.pingEveryone ?? true;
   const restrictedTeamIds = data.restrictedTeamIds ?? [];
@@ -165,6 +167,7 @@ export async function updateBulletin(postId: string, input: z.infer<typeof creat
   const user = await requirePermission("LICENSED");
   const data = createSchema.parse(input);
   rejectBase64Images(data.bodyJson);
+  data.bodyJson = JSON.parse(JSON.stringify(data.bodyJson));
   const restrictedTeamIds = data.restrictedTeamIds ?? [];
 
   await prisma.bulletinPost.update({

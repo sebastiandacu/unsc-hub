@@ -49,16 +49,34 @@ export async function createThread(input: z.infer<typeof threadSchema>) {
   rejectBase64Images(data.bodyJson);
   const category = await prisma.wallCategory.findUnique({ where: { slug: data.categorySlug } });
   if (!category) throw new Error("Category not found");
-  const thread = await prisma.wallThread.create({
-    data: {
-      categoryId: category.id,
-      authorId: user.id,
-      title: data.title,
-      bodyJson: data.bodyJson,
-      headerImageUrl: data.headerImageUrl || null,
-      bannerImageUrl: data.bannerImageUrl || null,
-    },
-  });
+
+  // Re-serialize bodyJson through JSON.parse(JSON.stringify(...)) to strip
+  // any non-plain-object trash (prototypes, hidden symbols, getters) that
+  // may have survived the Server Action boundary. This was the cause of
+  // the cryptic "Cannot access toStringTag on the server" error: certain
+  // Tiptap doc shapes (pasted-in nodes, marks with extra metadata) carry
+  // properties Prisma can't safely round-trip into Postgres JSONB.
+  const cleanBody = JSON.parse(JSON.stringify(data.bodyJson));
+
+  let thread;
+  try {
+    thread = await prisma.wallThread.create({
+      data: {
+        categoryId: category.id,
+        authorId: user.id,
+        title: data.title,
+        bodyJson: cleanBody,
+        headerImageUrl: data.headerImageUrl || null,
+        bannerImageUrl: data.bannerImageUrl || null,
+      },
+    });
+  } catch (e) {
+    // Surface the underlying Prisma message instead of letting Next.js
+    // mask it as the generic RSC error.
+    const msg = e instanceof Error ? e.message : String(e);
+    console.error("[createThread] prisma.wallThread.create failed:", msg);
+    throw new Error(`No se pudo guardar el hilo: ${msg.slice(0, 300)}`);
+  }
   await fanOutMentions(data.bodyJson, {
     authorId: user.id,
     authorName: user.nickname ?? user.discordUsername ?? "Operative",
@@ -79,6 +97,9 @@ export async function postReply(input: z.infer<typeof replySchema>) {
   const user = await requireUser();
   const data = replySchema.parse(input);
   rejectBase64Images(data.bodyJson);
+  const cleanBody = JSON.parse(JSON.stringify(data.bodyJson));
+  // overwrite for use below
+  data.bodyJson = cleanBody;
   const thread = await prisma.wallThread.findUnique({
     where: { id: data.threadId },
     select: { lockedByAdminId: true, category: { select: { slug: true } } },
@@ -155,6 +176,7 @@ export async function updateThread(threadId: string, input: z.infer<typeof threa
   const user = await requireUser();
   const data = threadEditSchema.parse(input);
   rejectBase64Images(data.bodyJson);
+  data.bodyJson = JSON.parse(JSON.stringify(data.bodyJson));
   const thread = await prisma.wallThread.findUnique({
     where: { id: threadId },
     select: { authorId: true, category: { select: { slug: true } } },
@@ -187,6 +209,7 @@ export async function updateReply(replyId: string, input: z.infer<typeof replyEd
   const user = await requireUser();
   const data = replyEditSchema.parse(input);
   rejectBase64Images(data.bodyJson);
+  data.bodyJson = JSON.parse(JSON.stringify(data.bodyJson));
   const reply = await prisma.wallReply.findUnique({
     where: { id: replyId },
     include: { thread: { select: { id: true, category: { select: { slug: true } } } } },
