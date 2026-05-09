@@ -2,7 +2,7 @@ import NextAuth from "next-auth";
 import Discord from "next-auth/providers/discord";
 import { PrismaAdapter } from "@auth/prisma-adapter";
 import { prisma } from "@/lib/db";
-import { fetchOwnGuildMember } from "@/lib/discord";
+import { fetchOwnGuildMember, fetchGuildMember } from "@/lib/discord";
 
 const GUILD_ID = process.env.DISCORD_GUILD_ID!;
 const AUTHORIZED_ROLE_ID = process.env.AUTHORIZED_ROLE_ID!;
@@ -48,11 +48,43 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       try {
         member = await fetchOwnGuildMember(account.access_token, GUILD_ID);
       } catch (e) {
-        console.error("[auth] guild member fetch failed", e);
+        console.error("[auth] OAuth guild member fetch failed", e);
         return false;
       }
-      if (!member) return false;
-      if (!member.roles.includes(AUTHORIZED_ROLE_ID)) return false;
+      if (!member) {
+        console.warn("[auth] user not in guild via OAuth", { discordId: account.providerAccountId });
+        return false;
+      }
+
+      // Discord caches the OAuth /users/@me/guilds/{id}/member response for
+      // up to ~10 minutes. If the user just got the role and the OAuth
+      // response is stale, fall back to the bot endpoint (live, no cache).
+      // This way newly-roled members can log in immediately instead of
+      // waiting for Discord's cache to expire.
+      if (!member.roles.includes(AUTHORIZED_ROLE_ID)) {
+        const discordId = account.providerAccountId;
+        console.warn("[auth] OAuth shows no AUTHORIZED_ROLE, retrying via bot", {
+          discordId,
+          oauthRoles: member.roles,
+        });
+        try {
+          const fresh = await fetchGuildMember(discordId, GUILD_ID);
+          if (fresh && fresh.roles.includes(AUTHORIZED_ROLE_ID)) {
+            // Bot says they DO have it — overwrite member so the snapshot
+            // we persist below reflects reality.
+            member = { ...member, roles: fresh.roles };
+          } else {
+            console.warn("[auth] bot also confirms no AUTHORIZED_ROLE", {
+              discordId,
+              botRoles: fresh?.roles ?? null,
+            });
+            return false;
+          }
+        } catch (e) {
+          console.error("[auth] bot fallback fetch failed", e);
+          return false;
+        }
+      }
 
       // Snapshot roles + sync profile (best-effort, before adapter persists user).
       const discordId = (profile as { id?: string } | undefined)?.id ?? account.providerAccountId;

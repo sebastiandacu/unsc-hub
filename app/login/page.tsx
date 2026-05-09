@@ -57,7 +57,9 @@ export default async function LoginPage({
 
         <p className="mt-3 text-sm text-[var(--color-text-dim)] leading-relaxed">
           El acceso requiere el rol{" "}
-          <span className="text-[var(--color-accent)] font-mono">Authorized</span>{" "}
+          <span className="text-[var(--color-accent)] font-mono">
+            {process.env.NEXT_PUBLIC_AUTHORIZED_ROLE_NAME ?? "Authorized"}
+          </span>{" "}
           en el servidor de Discord de {unit.shortCode}.
         </p>
 
@@ -66,8 +68,19 @@ export default async function LoginPage({
             <span>▲</span>
             <div>
               <div className="font-bold tracking-[0.2em] mb-1">ACCESS DENIED</div>
-              <div className="text-[var(--color-danger)]/80 normal-case tracking-normal">
-                Tu cuenta no está en el servidor o no tiene el rol requerido.
+              <div className="text-[var(--color-danger)]/80 normal-case tracking-normal space-y-2">
+                <div>
+                  Tu cuenta no está en el servidor o no tiene el rol{" "}
+                  <span className="font-bold">
+                    {process.env.NEXT_PUBLIC_AUTHORIZED_ROLE_NAME ?? "Authorized"}
+                  </span>{" "}
+                  asignado.
+                </div>
+                <div className="text-[10.5px] opacity-80">
+                  Pediles a un admin que te asigne ese rol específicamente
+                  (no otro con nombre parecido). Después esperá ~30 segundos
+                  y reintentá — Discord cachea la membresía.
+                </div>
               </div>
             </div>
           </div>
