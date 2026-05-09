@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useState, useTransition } from "react";
 import type { JoinMode } from "@prisma/client";
 import { joinSlot, leaveSlot, applyToSlot } from "@/lib/actions/teams";
+import { HonorableDischargeModal } from "@/components/HonorableDischargeModal";
 
 type Slot = {
   id: string;
@@ -19,12 +20,15 @@ export function SlotRow({
   team,
   isMine,
   myPending,
+  hasPendingDischarge,
   rankLabels,
 }: {
   slot: Slot;
-  team: { id: string; allowsMultiMembership: boolean };
+  team: { id: string; name: string; allowsMultiMembership: boolean };
   isMine: boolean;
   myPending: boolean;
+  /** True when the current viewer already has a pending Honorable Discharge from this team. */
+  hasPendingDischarge?: boolean;
   rankLabels: Record<number, string>;
 }) {
   const minLabel =
@@ -36,6 +40,9 @@ export function SlotRow({
   const [error, setError] = useState<string | null>(null);
   const [applyOpen, setApplyOpen] = useState(false);
   const [applyMsg, setApplyMsg] = useState("");
+  const [dischargeOpen, setDischargeOpen] = useState(false);
+
+  const isExclusive = !team.allowsMultiMembership;
 
   function tryJoin(confirmRelease = false) {
     setError(null);
@@ -93,7 +100,27 @@ export function SlotRow({
 
         <div className="ml-2">
           {isMine ? (
-            <button disabled={pending} onClick={() => start(() => leaveSlot(slot.id))} className="btn">Salir</button>
+            isExclusive ? (
+              hasPendingDischarge ? (
+                <span className="label-mono text-[var(--color-amber)]">DISCHARGE PENDIENTE</span>
+              ) : (
+                <button
+                  disabled={pending}
+                  onClick={() => setDischargeOpen(true)}
+                  className="btn btn-danger"
+                >
+                  Abandonar
+                </button>
+              )
+            ) : (
+              <button
+                disabled={pending}
+                onClick={() => start(() => leaveSlot(slot.id))}
+                className="btn"
+              >
+                Salir
+              </button>
+            )
           ) : slot.holder ? (
             <span className="label-mono">—</span>
           ) : slot.joinMode === "OPEN" ? (
@@ -135,6 +162,13 @@ export function SlotRow({
           </div>
         </div>
       )}
+
+      <HonorableDischargeModal
+        open={dischargeOpen}
+        fromTeamId={team.id}
+        fromTeamName={team.name}
+        onClose={() => setDischargeOpen(false)}
+      />
     </div>
   );
 }

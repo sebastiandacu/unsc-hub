@@ -30,6 +30,15 @@ export default async function TeamPage({ params }: { params: Promise<{ id: strin
   const rankObj = Object.fromEntries(rankMap);
   const teamMinLabel = rankLabel(team.minRankPriority, rankMap);
 
+  // Does the viewer already have a pending Honorable Discharge from this team?
+  // SlotRow uses this to swap "Abandonar" for a "DISCHARGE PENDIENTE" badge
+  // so the user can't queue a duplicate request.
+  const hasPendingDischarge = !team.allowsMultiMembership
+    ? (await prisma.dischargeRequest.count({
+        where: { userId: me.id, fromTeamId: team.id, status: "PENDING" },
+      })) > 0
+    : false;
+
   return (
     <>
       <PageHeader
@@ -82,9 +91,14 @@ export default async function TeamPage({ params }: { params: Promise<{ id: strin
                   minRankPriority: s.minRankPriority,
                   holder: s.holder,
                 }}
-                team={{ id: team.id, allowsMultiMembership: team.allowsMultiMembership }}
+                team={{
+                  id: team.id,
+                  name: team.name,
+                  allowsMultiMembership: team.allowsMultiMembership,
+                }}
                 isMine={s.holderId === me.id}
                 myPending={myPending}
+                hasPendingDischarge={hasPendingDischarge}
                 rankLabels={rankObj}
               />
             );

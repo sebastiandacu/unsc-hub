@@ -10,85 +10,10 @@ import {
   createRole,
   editRole,
   deleteRole,
-  addRoleToMember,
-  removeRoleFromMember,
-  isGuildMember,
   hexToColor,
   DiscordBotError,
 } from "@/lib/discord-bot";
-
-/**
- * Add the team role + the team's category role to a Discord member.
- * Best-effort: returns a warning string when the user isn't in the
- * guild or Discord rejects the call. Caller surfaces it.
- */
-async function syncMemberJoinedTeam(userId: string, teamId: string): Promise<string | null> {
-  const [user, team] = await Promise.all([
-    prisma.user.findUnique({ where: { id: userId }, select: { discordId: true, nickname: true, discordUsername: true } }),
-    prisma.team.findUnique({
-      where: { id: teamId },
-      include: { category: { select: { discordRoleId: true, name: true } } },
-    }),
-  ]);
-  if (!user?.discordId || !team) return null;
-
-  const reason = `HUB · ${user.nickname ?? user.discordUsername ?? userId} → ${team.name}`;
-  try {
-    const inGuild = await isGuildMember(user.discordId);
-    if (!inGuild) {
-      return `${user.nickname ?? user.discordUsername ?? "el usuario"} no está en el server de Discord. Cuando entre, los roles no se le van a aplicar automáticamente — lo tendrás que sincronizar a mano.`;
-    }
-    if (team.discordRoleId) await addRoleToMember(user.discordId, team.discordRoleId, reason);
-    if (team.category?.discordRoleId) await addRoleToMember(user.discordId, team.category.discordRoleId, reason);
-    return null;
-  } catch (e) {
-    return `Discord rechazó asignar roles a ${user.nickname ?? user.discordUsername ?? userId}: ${e instanceof Error ? e.message : String(e)}`;
-  }
-}
-
-/**
- * Remove the team role; if the user has no remaining team in the same
- * category, also strip the category role.
- */
-async function syncMemberLeftTeam(userId: string, teamId: string): Promise<string | null> {
-  const [user, team] = await Promise.all([
-    prisma.user.findUnique({ where: { id: userId }, select: { discordId: true, nickname: true, discordUsername: true } }),
-    prisma.team.findUnique({
-      where: { id: teamId },
-      include: { category: { select: { id: true, discordRoleId: true, name: true } } },
-    }),
-  ]);
-  if (!user?.discordId || !team) return null;
-
-  const reason = `HUB · ${user.nickname ?? user.discordUsername ?? userId} ← ${team.name}`;
-  try {
-    if (team.discordRoleId) {
-      await removeRoleFromMember(user.discordId, team.discordRoleId, reason).catch((e) => {
-        if (e instanceof DiscordBotError && e.status === 404) return;
-        throw e;
-      });
-    }
-
-    // Still in another team in the same category? Then keep the category role.
-    if (team.category?.id && team.category.discordRoleId) {
-      const stillIn = await prisma.teamSlot.count({
-        where: {
-          holderId: userId,
-          team: { categoryId: team.category.id, id: { not: teamId } },
-        },
-      });
-      if (stillIn === 0) {
-        await removeRoleFromMember(user.discordId, team.category.discordRoleId, reason).catch((e) => {
-          if (e instanceof DiscordBotError && e.status === 404) return;
-          throw e;
-        });
-      }
-    }
-    return null;
-  } catch (e) {
-    return `Discord rechazó remover roles a ${user.nickname ?? user.discordUsername ?? userId}: ${e instanceof Error ? e.message : String(e)}`;
-  }
-}
+import { syncMemberJoinedTeam, syncMemberLeftTeam } from "./teams-discord-sync";
 
 const teamSchema = z.object({
   name: z.string().trim().min(1).max(80),
@@ -363,6 +288,25 @@ export async function joinSlot(slotId: string, confirmRelease = false): Promise<
   const gate = await checkRankGate(user.id, slot.team.minRankPriority, slot.minRankPriority);
   if (gate) return { ok: false, error: gate };
 
+  // Honorable Discharge guard: if the user holds a slot in any
+  // exclusive team OTHER than this one, they can't just hop — they
+  // need to file a discharge request from that team first. The UI
+  // surfaces a "request discharge" modal for this case; this server
+  // check is the backstop.
+  const exclusivesHeld = await exclusiveTeamsHeldByUser(user.id);
+  const exclusiveBlockers = exclusivesHeld.filter((id) => id !== slot.teamId);
+  if (exclusiveBlockers.length > 0) {
+    const blockingTeams = await prisma.team.findMany({
+      where: { id: { in: exclusiveBlockers } },
+      select: { name: true },
+    });
+    const names = blockingTeams.map((t) => t.name).join(", ");
+    return {
+      ok: false,
+      error: `Estás en ${exclusiveBlockers.length === 1 ? "un equipo exclusivo" : "equipos exclusivos"} (${names}). Pedí Honorable Discharge desde ahí antes de unirte a otro.`,
+    };
+  }
+
   // Always release any other slot the user holds in THIS team (1 slot
   // per team max — having "Sniper" + "Medic" of the same fireteam doesn't
   // make sense). This is silent — it's a swap, not an exclusivity violation.
@@ -373,9 +317,11 @@ export async function joinSlot(slotId: string, confirmRelease = false): Promise<
     await prisma.teamSlot.update({ where: { id: sameTeamExisting.id }, data: { holderId: null } });
   }
 
-  // Exclusivity check: if THIS team is exclusive (allowsMultiMembership=false),
-  // joining requires releasing every other team the user holds anywhere else.
-  // We surface the names of those teams so the user knows what they're losing.
+  // Exclusivity check on the INCOMING team: if THIS team is exclusive
+  // (allowsMultiMembership=false), joining requires releasing every other
+  // team the user holds anywhere else. With the discharge guard above,
+  // exclusiveBlockers is already empty here — so this only catches
+  // non-exclusive teams the user is in.
   const otherTeamSlots = !slot.team.allowsMultiMembership
     ? await prisma.teamSlot.findMany({
         where: { holderId: user.id, teamId: { not: slot.teamId } },
@@ -416,8 +362,21 @@ export async function joinSlot(slotId: string, confirmRelease = false): Promise<
 
 export async function leaveSlot(slotId: string) {
   const user = await requireUser();
-  const slot = await prisma.teamSlot.findUnique({ where: { id: slotId } });
+  const slot = await prisma.teamSlot.findUnique({
+    where: { id: slotId },
+    include: { team: { select: { allowsMultiMembership: true } } },
+  });
   if (!slot || slot.holderId !== user.id) throw new Error("Not your slot");
+
+  // Exclusive teams require an admin-approved Honorable Discharge to leave.
+  // The UI should open the discharge modal instead of calling this directly,
+  // but we enforce it server-side too.
+  if (!slot.team.allowsMultiMembership) {
+    throw new Error(
+      "Este equipo es exclusivo. Para abandonarlo necesitás solicitar Honorable Discharge — usá el botón correspondiente.",
+    );
+  }
+
   await prisma.teamSlot.update({ where: { id: slotId }, data: { holderId: null } });
   await prisma.auditLog.create({
     data: { actorId: user.id, action: "slot.leave", targetType: "TeamSlot", targetId: slotId },
@@ -428,6 +387,20 @@ export async function leaveSlot(slotId: string) {
 
   revalidatePath(`/roster/teams/${slot.teamId}`);
   revalidatePath("/roster/teams");
+}
+
+/**
+ * Returns the team IDs the user is currently in that are EXCLUSIVE
+ * (allowsMultiMembership=false). If non-empty, joining/applying to a
+ * different team requires going through the discharge flow first.
+ */
+async function exclusiveTeamsHeldByUser(userId: string): Promise<string[]> {
+  const slots = await prisma.teamSlot.findMany({
+    where: { holderId: userId, team: { allowsMultiMembership: false } },
+    select: { teamId: true },
+    distinct: ["teamId"],
+  });
+  return slots.map((s) => s.teamId);
 }
 
 export async function applyToSlot(slotId: string, message: string): Promise<{ ok: boolean; error?: string }> {
@@ -447,6 +420,22 @@ export async function applyToSlot(slotId: string, message: string): Promise<{ ok
 
   const gate = await checkRankGate(user.id, slot.team.minRankPriority, slot.minRankPriority);
   if (gate) return { ok: false, error: gate };
+
+  // Honorable Discharge guard: same as joinSlot — can't apply to a
+  // different team while you're locked into an exclusive one.
+  const exclusivesHeld = await exclusiveTeamsHeldByUser(user.id);
+  const exclusiveBlockers = exclusivesHeld.filter((id) => id !== slot.teamId);
+  if (exclusiveBlockers.length > 0) {
+    const blockingTeams = await prisma.team.findMany({
+      where: { id: { in: exclusiveBlockers } },
+      select: { name: true },
+    });
+    const names = blockingTeams.map((t) => t.name).join(", ");
+    return {
+      ok: false,
+      error: `Estás en ${exclusiveBlockers.length === 1 ? "un equipo exclusivo" : "equipos exclusivos"} (${names}). Pedí Honorable Discharge desde ahí antes de aplicar a otro.`,
+    };
+  }
 
   const existing = await prisma.teamApplication.findFirst({
     where: { slotId, applicantId: user.id, status: "PENDING" },

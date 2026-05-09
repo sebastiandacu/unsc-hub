@@ -5,7 +5,7 @@ import { TeamsAdmin } from "./TeamsAdmin";
 
 export default async function AdminTeamsPage() {
   await requireAdmin();
-  const [teams, applications, users, priorities, categories] = await Promise.all([
+  const [teams, applications, users, priorities, categories, discharges] = await Promise.all([
     prisma.team.findMany({
       orderBy: { createdAt: "asc" },
       include: {
@@ -42,6 +42,15 @@ export default async function AdminTeamsPage() {
     prisma.teamCategory.findMany({
       orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
       include: { _count: { select: { teams: true } } },
+    }),
+    prisma.dischargeRequest.findMany({
+      where: { status: "PENDING" },
+      orderBy: { createdAt: "asc" },
+      include: {
+        user: { select: { id: true, nickname: true, discordUsername: true } },
+        fromTeam: { select: { id: true, name: true } },
+        toSlot: { include: { team: { select: { id: true, name: true } } } },
+      },
     }),
   ]);
 
@@ -111,6 +120,17 @@ export default async function AdminTeamsPage() {
             teamName: a.slot.team.name,
             message: a.message,
             createdAt: a.createdAt,
+          }))}
+          discharges={discharges.map((d) => ({
+            id: d.id,
+            userId: d.user.id,
+            userName: d.user.nickname ?? d.user.discordUsername ?? d.user.id,
+            fromTeamId: d.fromTeam.id,
+            fromTeamName: d.fromTeam.name,
+            toTeamName: d.toSlot?.team?.name ?? null,
+            toSlotTitle: d.toSlot?.title ?? null,
+            reason: d.reason,
+            createdAt: d.createdAt,
           }))}
         />
       </div>

@@ -23,6 +23,7 @@ import {
   deleteTeamCategory,
   fetchGuildRoles,
 } from "@/lib/actions/teamCategories";
+import { reviewDischarge } from "@/lib/actions/discharge";
 import { ImageUploadButton } from "@/components/ImageUploadButton";
 
 type SlotInfo = {
@@ -83,17 +84,31 @@ type Application = {
   createdAt: Date;
 };
 
+type Discharge = {
+  id: string;
+  userId: string;
+  userName: string;
+  fromTeamId: string;
+  fromTeamName: string;
+  toTeamName: string | null;
+  toSlotTitle: string | null;
+  reason: string;
+  createdAt: Date;
+};
+
 type UserOption = { id: string; name: string };
 
 export function TeamsAdmin({
   teams,
   applications,
+  discharges,
   users,
   priorities,
   categories,
 }: {
   teams: TeamInfo[];
   applications: Application[];
+  discharges: Discharge[];
   users: UserOption[];
   priorities: Priority[];
   categories: CategoryInfo[];
@@ -102,6 +117,8 @@ export function TeamsAdmin({
   const [createOpen, setCreateOpen] = useState(false);
   const [rejecting, setRejecting] = useState<Application | null>(null);
   const [rejectNote, setRejectNote] = useState("");
+  const [rejectingDischarge, setRejectingDischarge] = useState<Discharge | null>(null);
+  const [dischargeNote, setDischargeNote] = useState("");
   const [mounted, setMounted] = useState(false);
   useEffect(() => { setMounted(true); }, []);
   const rankMap = useMemo(
@@ -127,6 +144,75 @@ export function TeamsAdmin({
                 <span className="label-mono">{new Date(a.createdAt).toLocaleDateString()}</span>
                 <button disabled={pending} onClick={() => start(() => reviewApplication(a.id, true))} className="btn btn-primary">Aprobar</button>
                 <button disabled={pending} onClick={() => { setRejecting(a); setRejectNote(""); }} className="btn">Rechazar</button>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
+      {discharges.length > 0 && (
+        <section className="panel-elevated panel-bracket p-5">
+          <h2 className="font-mono uppercase text-sm tracking-[0.16em] mb-3 flex items-center gap-2">
+            <span className="size-1.5 bg-[var(--color-amber)] animate-pulse" />
+            Honorable Discharge — Pendientes ({discharges.length})
+          </h2>
+          <ul className="space-y-2">
+            {discharges.map((d) => (
+              <li key={d.id} className="border border-[var(--color-border)] p-3 flex flex-col gap-2">
+                <div className="flex flex-wrap items-center gap-3">
+                  <Link
+                    href={`/roster/${d.userId}`}
+                    className="font-mono text-sm hover:text-[var(--color-accent)]"
+                  >
+                    {d.userName}
+                  </Link>
+                  <span className="label-mono">solicita baja de</span>
+                  <span className="font-mono text-[var(--color-accent)]">{d.fromTeamName}</span>
+                  {d.toTeamName && (
+                    <>
+                      <span className="label-mono">y transferencia a</span>
+                      <span className="font-mono text-[var(--color-accent)]">
+                        {d.toTeamName}
+                        {d.toSlotTitle && (
+                          <span className="text-[var(--color-muted)]"> / {d.toSlotTitle}</span>
+                        )}
+                      </span>
+                    </>
+                  )}
+                  <span className="label-mono ml-auto">
+                    {new Date(d.createdAt).toLocaleDateString()}
+                  </span>
+                </div>
+                <div className="border-l-2 border-[var(--color-border-2)] pl-3 text-xs text-[var(--color-text-dim)] italic leading-relaxed whitespace-pre-line">
+                  &quot;{d.reason}&quot;
+                </div>
+                <div className="flex justify-end gap-2 pt-1">
+                  <button
+                    disabled={pending}
+                    onClick={() =>
+                      start(async () => {
+                        try {
+                          await reviewDischarge(d.id, true);
+                        } catch (e) {
+                          alert(e instanceof Error ? e.message : String(e));
+                        }
+                      })
+                    }
+                    className="btn btn-primary"
+                  >
+                    Aprobar baja
+                  </button>
+                  <button
+                    disabled={pending}
+                    onClick={() => {
+                      setRejectingDischarge(d);
+                      setDischargeNote("");
+                    }}
+                    className="btn"
+                  >
+                    Rechazar
+                  </button>
+                </div>
               </li>
             ))}
           </ul>
@@ -225,6 +311,77 @@ export function TeamsAdmin({
                     await reviewApplication(id, false, note);
                     setRejecting(null);
                     setRejectNote("");
+                  });
+                }}
+                className="btn btn-danger"
+              >
+                {pending ? "Enviando..." : "Confirmar rechazo"}
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {rejectingDischarge && mounted && createPortal(
+        <div
+          className="fixed inset-0 z-[150] bg-black/85 backdrop-blur-sm grid place-items-center p-4"
+          onClick={() => !pending && setRejectingDischarge(null)}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="panel w-full max-w-lg p-6 space-y-4"
+          >
+            <div>
+              <div className="label-mono text-[var(--color-danger)]">
+                Rechazar Honorable Discharge
+              </div>
+              <h3 className="font-mono text-lg mt-1">
+                {rejectingDischarge.userName} ← {rejectingDischarge.fromTeamName}
+              </h3>
+            </div>
+
+            <div className="border-l-2 border-[var(--color-border)] pl-3 text-sm text-[var(--color-muted)] italic whitespace-pre-line">
+              &quot;{rejectingDischarge.reason}&quot;
+            </div>
+
+            <div>
+              <label className="label-mono block mb-1">Razón del rechazo</label>
+              <textarea
+                value={dischargeNote}
+                onChange={(e) => setDischargeNote(e.target.value)}
+                rows={4}
+                maxLength={500}
+                autoFocus
+                placeholder="Explicale por qué no se le aprueba la baja. Va a recibir esto como notificación."
+                className="w-full bg-[var(--color-base)] border border-[var(--color-border)] px-3 py-2 font-mono text-sm leading-relaxed"
+              />
+              <div className="label-mono text-right mt-1 text-[var(--color-muted)]">
+                {dischargeNote.length}/500
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-2 border-t border-[var(--color-border)]">
+              <button
+                disabled={pending}
+                onClick={() => setRejectingDischarge(null)}
+                className="btn"
+              >
+                Cancelar
+              </button>
+              <button
+                disabled={pending}
+                onClick={() => {
+                  const id = rejectingDischarge.id;
+                  const note = dischargeNote;
+                  start(async () => {
+                    try {
+                      await reviewDischarge(id, false, note);
+                      setRejectingDischarge(null);
+                      setDischargeNote("");
+                    } catch (e) {
+                      alert(e instanceof Error ? e.message : String(e));
+                    }
                   });
                 }}
                 className="btn btn-danger"

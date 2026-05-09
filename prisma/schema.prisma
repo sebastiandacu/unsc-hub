@@ -73,6 +73,16 @@ enum ApplicationStatus {
   REJECTED
 }
 
+/// Honorable Discharge requests: when a user wants to leave or switch
+/// out of an exclusive team, they file one of these and an admin must
+/// approve before the slot move actually happens.
+enum DischargeStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED   // user retired the request, or admin kicked them first
+}
+
 enum RsvpStatus {
   GOING
   MAYBE
@@ -122,6 +132,8 @@ model User {
   heldSlots           TeamSlot[]           @relation("SlotHolder")
   applications        TeamApplication[]    @relation("Applicant")
   reviewedApplications TeamApplication[]   @relation("Reviewer")
+  dischargeRequests   DischargeRequest[]   @relation("DischargeApplicant")
+  reviewedDischarges  DischargeRequest[]   @relation("DischargeReviewer")
   events              Event[]
   rsvps               EventRSVP[]
   auditLogs           AuditLog[]
@@ -381,6 +393,7 @@ model Team {
   /// Bulletins/Events that are restricted to this team's members.
   restrictedBulletins BulletinPost[] @relation("BulletinRestrictedTeams")
   restrictedEvents    Event[]        @relation("EventRestrictedTeams")
+  dischargeRequests   DischargeRequest[] @relation("DischargeFromTeam")
 
   @@index([categoryId])
 }
@@ -398,8 +411,36 @@ model TeamSlot {
   team         Team              @relation(fields: [teamId], references: [id], onDelete: Cascade)
   holder       User?             @relation("SlotHolder", fields: [holderId], references: [id])
   applications TeamApplication[]
+  dischargeRequestsTargeting DischargeRequest[] @relation("DischargeToSlot")
 
   @@index([teamId, sortOrder])
+}
+
+/// Pending discharge from an exclusive team. When approved, the slot
+/// move actually happens (release fromTeam + optionally take toSlot).
+/// When rejected, the user gets a notification with the admin's reason.
+model DischargeRequest {
+  id           String          @id @default(cuid())
+  userId       String
+  /// The team the user is asking to leave.
+  fromTeamId   String
+  /// Optional target slot — when set, approval also assigns the user
+  /// to this slot atomically. NULL = pure leave.
+  toSlotId     String?
+  reason       String
+  status       DischargeStatus @default(PENDING)
+  reviewedById String?
+  reviewedAt   DateTime?
+  reviewNote   String?
+  createdAt    DateTime        @default(now())
+
+  user       User      @relation("DischargeApplicant", fields: [userId], references: [id])
+  fromTeam   Team      @relation("DischargeFromTeam", fields: [fromTeamId], references: [id], onDelete: Cascade)
+  toSlot     TeamSlot? @relation("DischargeToSlot", fields: [toSlotId], references: [id], onDelete: SetNull)
+  reviewedBy User?     @relation("DischargeReviewer", fields: [reviewedById], references: [id])
+
+  @@index([userId, status])
+  @@index([status, createdAt])
 }
 
 model TeamApplication {
