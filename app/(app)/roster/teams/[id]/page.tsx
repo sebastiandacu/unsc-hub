@@ -39,6 +39,19 @@ export default async function TeamPage({ params }: { params: Promise<{ id: strin
       })) > 0
     : false;
 
+  // Other exclusive teams the viewer is in. SlotRow uses this to redirect
+  // Unirse / Solicitar buttons into the discharge flow when the viewer is
+  // locked into another exclusive team.
+  const viewerExclusiveBlockers = await prisma.teamSlot.findMany({
+    where: {
+      holderId: me.id,
+      team: { allowsMultiMembership: false, id: { not: team.id } },
+    },
+    distinct: ["teamId"],
+    select: { team: { select: { id: true, name: true } } },
+  });
+  const blockers = viewerExclusiveBlockers.map((s) => s.team);
+
   return (
     <>
       <PageHeader
@@ -99,6 +112,7 @@ export default async function TeamPage({ params }: { params: Promise<{ id: strin
                 isMine={s.holderId === me.id}
                 myPending={myPending}
                 hasPendingDischarge={hasPendingDischarge}
+                viewerExclusiveBlockers={blockers}
                 rankLabels={rankObj}
               />
             );

@@ -21,6 +21,7 @@ export function SlotRow({
   isMine,
   myPending,
   hasPendingDischarge,
+  viewerExclusiveBlockers,
   rankLabels,
 }: {
   slot: Slot;
@@ -29,6 +30,14 @@ export function SlotRow({
   myPending: boolean;
   /** True when the current viewer already has a pending Honorable Discharge from this team. */
   hasPendingDischarge?: boolean;
+  /**
+   * Exclusive teams the viewer holds slots in OTHER than this one. When
+   * non-empty, attempts to Unirse/Solicitar on this slot are rerouted to
+   * the discharge modal instead — same end goal, but the user gets the
+   * "you must request discharge" path immediately instead of submitting
+   * an application that the server will reject.
+   */
+  viewerExclusiveBlockers?: { id: string; name: string }[];
   rankLabels: Record<number, string>;
 }) {
   const minLabel =
@@ -40,9 +49,14 @@ export function SlotRow({
   const [error, setError] = useState<string | null>(null);
   const [applyOpen, setApplyOpen] = useState(false);
   const [applyMsg, setApplyMsg] = useState("");
-  const [dischargeOpen, setDischargeOpen] = useState(false);
+  /** Modal mode: "leave" = abandon current slot, "switch" = leave + take this slot. */
+  const [dischargeMode, setDischargeMode] = useState<"leave" | "switch" | null>(null);
 
   const isExclusive = !team.allowsMultiMembership;
+  // First (typically only) exclusive team the viewer is in. If set, joining
+  // / applying to a DIFFERENT team requires discharging from this one first.
+  const blocker = viewerExclusiveBlockers?.[0] ?? null;
+  const blockedFromActing = !!blocker && blocker.id !== team.id;
 
   function tryJoin(confirmRelease = false) {
     setError(null);
@@ -106,7 +120,7 @@ export function SlotRow({
               ) : (
                 <button
                   disabled={pending}
-                  onClick={() => setDischargeOpen(true)}
+                  onClick={() => setDischargeMode("leave")}
                   className="btn btn-danger"
                 >
                   Abandonar
@@ -124,11 +138,35 @@ export function SlotRow({
           ) : slot.holder ? (
             <span className="label-mono">—</span>
           ) : slot.joinMode === "OPEN" ? (
-            <button disabled={pending} onClick={() => tryJoin(false)} className="btn btn-primary">Unirse</button>
+            blockedFromActing ? (
+              <button
+                disabled={pending}
+                onClick={() => setDischargeMode("switch")}
+                className="btn btn-danger"
+                title={`Pedir baja de ${blocker!.name} y transferencia a este slot`}
+              >
+                Pedir transferencia
+              </button>
+            ) : (
+              <button disabled={pending} onClick={() => tryJoin(false)} className="btn btn-primary">
+                Unirse
+              </button>
+            )
           ) : myPending ? (
             <span className="label-mono text-[var(--color-accent)]">PENDING</span>
+          ) : blockedFromActing ? (
+            <button
+              disabled={pending}
+              onClick={() => setDischargeMode("switch")}
+              className="btn btn-danger"
+              title={`Pedir baja de ${blocker!.name} y transferencia a este slot`}
+            >
+              Pedir transferencia
+            </button>
           ) : (
-            <button disabled={pending} onClick={() => setApplyOpen(true)} className="btn">Solicitar</button>
+            <button disabled={pending} onClick={() => setApplyOpen(true)} className="btn">
+              Solicitar
+            </button>
           )}
         </div>
       </div>
@@ -164,10 +202,12 @@ export function SlotRow({
       )}
 
       <HonorableDischargeModal
-        open={dischargeOpen}
-        fromTeamId={team.id}
-        fromTeamName={team.name}
-        onClose={() => setDischargeOpen(false)}
+        open={dischargeMode !== null}
+        fromTeamId={dischargeMode === "switch" && blocker ? blocker.id : team.id}
+        fromTeamName={dischargeMode === "switch" && blocker ? blocker.name : team.name}
+        toSlotId={dischargeMode === "switch" ? slot.id : undefined}
+        toTeamName={dischargeMode === "switch" ? team.name : undefined}
+        onClose={() => setDischargeMode(null)}
       />
     </div>
   );
