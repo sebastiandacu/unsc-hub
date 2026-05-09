@@ -44,46 +44,62 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         return false;
       }
 
-      let member;
+      const discordId = account.providerAccountId;
+      let member: { user?: { id: string; avatar?: string; username?: string; global_name?: string }; roles: string[] } | null = null;
+
+      // Pass 1: OAuth-based check. Cheap, no rate limits on the bot.
       try {
         member = await fetchOwnGuildMember(account.access_token, GUILD_ID);
       } catch (e) {
-        console.error("[auth] OAuth guild member fetch failed", e);
-        return false;
-      }
-      if (!member) {
-        console.warn("[auth] user not in guild via OAuth", { discordId: account.providerAccountId });
-        return false;
+        // Discord's API sits behind Cloudflare and intermittently returns
+        // 5xx HTML challenge pages instead of JSON for the OAuth member
+        // endpoint. Don't deny the user over a transient CF blip — fall
+        // through to the bot pass.
+        console.warn("[auth] OAuth guild member fetch failed, will try bot fallback", {
+          discordId,
+          error: e instanceof Error ? e.message.slice(0, 200) : String(e),
+        });
       }
 
-      // Discord caches the OAuth /users/@me/guilds/{id}/member response for
-      // up to ~10 minutes. If the user just got the role and the OAuth
-      // response is stale, fall back to the bot endpoint (live, no cache).
-      // This way newly-roled members can log in immediately instead of
-      // waiting for Discord's cache to expire.
-      if (!member.roles.includes(AUTHORIZED_ROLE_ID)) {
-        const discordId = account.providerAccountId;
-        console.warn("[auth] OAuth shows no AUTHORIZED_ROLE, retrying via bot", {
-          discordId,
-          oauthRoles: member.roles,
-        });
+      const oauthHasRole = !!member?.roles.includes(AUTHORIZED_ROLE_ID);
+
+      // Pass 2: bot-token fetch. Always live (no OAuth cache, no CF challenges
+      // in our experience) and authoritative. We hit it whenever OAuth either
+      // failed entirely or said the user has no role — covers both the
+      // CF-block case and the stale-cache-after-role-grant case.
+      if (!oauthHasRole) {
+        if (member) {
+          console.warn("[auth] OAuth shows no AUTHORIZED_ROLE, retrying via bot", {
+            discordId,
+            oauthRoles: member.roles,
+          });
+        }
         try {
           const fresh = await fetchGuildMember(discordId, GUILD_ID);
           if (fresh && fresh.roles.includes(AUTHORIZED_ROLE_ID)) {
-            // Bot says they DO have it — overwrite member so the snapshot
-            // we persist below reflects reality.
-            member = { ...member, roles: fresh.roles };
+            member = fresh;
+          } else if (!fresh) {
+            console.warn("[auth] bot says user not in guild", { discordId });
+            return false;
           } else {
             console.warn("[auth] bot also confirms no AUTHORIZED_ROLE", {
               discordId,
-              botRoles: fresh?.roles ?? null,
+              botRoles: fresh.roles,
             });
             return false;
           }
         } catch (e) {
-          console.error("[auth] bot fallback fetch failed", e);
+          console.error("[auth] bot fallback fetch failed", {
+            discordId,
+            error: e instanceof Error ? e.message.slice(0, 200) : String(e),
+          });
           return false;
         }
+      }
+      if (!member) {
+        // Defensive — by here either OAuth or bot succeeded; if neither,
+        // we've already returned false above.
+        return false;
       }
 
       // Snapshot roles + sync profile (best-effort, before adapter persists user).
