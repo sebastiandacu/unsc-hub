@@ -103,7 +103,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       }
 
       // Snapshot roles + sync profile (best-effort, before adapter persists user).
-      const discordId = (profile as { id?: string } | undefined)?.id ?? account.providerAccountId;
+      // discordId was already extracted above for the bot fallback.
       const username = member.user?.global_name ?? member.user?.username ?? user.name ?? null;
 
       // Defer the snapshot write until after the adapter creates/updates the User
