@@ -8,6 +8,7 @@ import {
   toggleBan,
   setRankOverride,
   setNickname,
+  setAvatarUrl,
   awardMedal,
   revokeMedal,
   awardPatch,
@@ -98,6 +99,16 @@ export function UserRow({
             </div>
 
             <div>
+              <label className="label-mono block mb-1">Avatar / foto de perfil</label>
+              <AvatarField
+                userId={user.id}
+                initial={user.avatarUrl}
+                pending={pending}
+                start={start}
+              />
+            </div>
+
+            <div>
               <label className="label-mono block mb-1">Sobrescribir rango</label>
               <RankOverrideField userId={user.id} initial={user.manualRankOverride} pending={pending} start={start} />
             </div>
@@ -170,6 +181,61 @@ function NicknameField({
       >
         Guardar
       </button>
+    </div>
+  );
+}
+
+function AvatarField({
+  userId,
+  initial,
+  pending,
+  start,
+}: { userId: string; initial: string | null; pending: boolean; start: (cb: () => void) => void }) {
+  const [url, setUrl] = useState(initial);
+  const dirty = url !== initial;
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="flex items-center gap-3">
+        <div className="size-14 border border-[var(--color-border)] overflow-hidden grid place-items-center bg-[var(--color-base)] shrink-0">
+          {url ? (
+            /* eslint-disable-next-line @next/next/no-img-element */
+            <img src={url} alt="" className="size-full object-cover" />
+          ) : (
+            <span className="label-mono text-[10px] text-[var(--color-muted)]">SIN PFP</span>
+          )}
+        </div>
+        <div className="flex flex-col gap-1">
+          <ImageUploadButton
+            endpoint="avatarAdmin"
+            label={url ? "Reemplazar" : "Subir nueva"}
+            onUploaded={(newUrl) => setUrl(newUrl)}
+          />
+          {url && (
+            <button
+              type="button"
+              onClick={() => setUrl(null)}
+              className="label-mono text-[var(--color-danger)] hover:underline text-left"
+            >
+              quitar (vuelve al avatar de Discord)
+            </button>
+          )}
+        </div>
+      </div>
+      <input
+        value={url ?? ""}
+        onChange={(e) => setUrl(e.target.value || null)}
+        placeholder="o pegá una URL https://..."
+        className="bg-[var(--color-base)] border border-[var(--color-border)] px-2 py-1 font-mono text-xs"
+      />
+      <div className="flex justify-end">
+        <button
+          disabled={pending || !dirty}
+          onClick={() => start(() => setAvatarUrl(userId, url))}
+          className="btn btn-primary"
+        >
+          Guardar avatar
+        </button>
+      </div>
     </div>
   );
 }

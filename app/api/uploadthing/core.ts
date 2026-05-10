@@ -30,6 +30,19 @@ export const ourFileRouter = {
       return { url: file.ufsUrl };
     }),
 
+  /**
+   * Admin-only avatar slot. Doesn't auto-write to any user — caller is
+   * expected to follow up with setAvatarUrl(targetUserId, url). Used by
+   * the /admin/users panel when an admin overrides someone else's PFP.
+   */
+  avatarAdmin: f({ image: { maxFileSize: "8MB", maxFileCount: 1 } })
+    .middleware(async () => {
+      const userId = await requireSession();
+      await requireAdminUser(userId);
+      return { userId };
+    })
+    .onUploadComplete(({ file }) => ({ url: file.ufsUrl })),
+
   postImage: f({ image: { maxFileSize: "8MB", maxFileCount: 1 } })
     .middleware(async () => {
       const userId = await requireSession();

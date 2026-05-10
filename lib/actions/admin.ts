@@ -57,6 +57,32 @@ export async function setNickname(userId: string, value: string | null) {
   revalidatePath("/roster");
 }
 
+/**
+ * Admin override of any user's avatar. Pass null to clear and revert to
+ * the Discord-derived avatar on next login.
+ */
+export async function setAvatarUrl(userId: string, value: string | null) {
+  const admin = await requireAdmin();
+  const trimmed = value?.trim() || null;
+  if (trimmed && !/^https?:\/\//i.test(trimmed)) {
+    throw new Error("Avatar URL inválido (tiene que empezar con http o https).");
+  }
+  const prev = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { avatarUrl: true },
+  });
+  if (!prev) throw new Error("User not found");
+  if (prev.avatarUrl === trimmed) return;
+  await prisma.user.update({ where: { id: userId }, data: { avatarUrl: trimmed } });
+  await audit(admin.id, "user.setAvatar", "User", userId, {
+    from: prev.avatarUrl,
+    to: trimmed,
+  });
+  revalidatePath("/admin/users");
+  revalidatePath(`/roster/${userId}`);
+  revalidatePath("/roster");
+}
+
 export async function setRankOverride(userId: string, value: string | null) {
   const admin = await requireAdmin();
   const trimmed = value?.trim() || null;
