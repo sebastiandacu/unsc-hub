@@ -76,6 +76,48 @@ enum ApplicationStatus {
 /// Honorable Discharge requests: when a user wants to leave or switch
 /// out of an exclusive team, they file one of these and an admin must
 /// approve before the slot move actually happens.
+/// Invite codes let users from partner communities log in without
+/// having the AUTHORIZED_ROLE_ID. Admin generates a code, partner
+/// distributes it to their members, members hit /login?invite=CODE
+/// and can authorize Discord normally — the code stamps them as
+/// authorized regardless of guild role.
+model InviteCode {
+  id          String    @id @default(cuid())
+  /// Human-friendly token, uppercase A-Z + digits, e.g. "HALOCE-7XK2".
+  code        String    @unique
+  /// Label shown to admins and embedded in the user's profile badge.
+  label       String
+  createdById String
+  /// null = unlimited uses
+  maxUses     Int?
+  uses        Int       @default(0)
+  /// null = never expires
+  expiresAt   DateTime?
+  revoked     Boolean   @default(false)
+  createdAt   DateTime  @default(now())
+
+  createdBy   User                @relation("InviteCreator", fields: [createdById], references: [id])
+  redemptions InviteRedemption[]
+
+  @@index([code])
+}
+
+/// One row per user who used an invite to enter the HUB. The unique
+/// constraint on userId means each user has at most one entry path —
+/// so we can show "vía X" on their profile unambiguously.
+model InviteRedemption {
+  id         String   @id @default(cuid())
+  inviteId   String
+  userId     String
+  redeemedAt DateTime @default(now())
+
+  invite InviteCode @relation(fields: [inviteId], references: [id], onDelete: Cascade)
+  user   User       @relation("InviteRedeemer", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId])
+  @@index([inviteId])
+}
+
 enum DischargeStatus {
   PENDING
   APPROVED
@@ -134,6 +176,8 @@ model User {
   reviewedApplications TeamApplication[]   @relation("Reviewer")
   dischargeRequests   DischargeRequest[]   @relation("DischargeApplicant")
   reviewedDischarges  DischargeRequest[]   @relation("DischargeReviewer")
+  invitesCreated      InviteCode[]         @relation("InviteCreator")
+  inviteRedemption    InviteRedemption?    @relation("InviteRedeemer")
   events              Event[]
   rsvps               EventRSVP[]
   auditLogs           AuditLog[]

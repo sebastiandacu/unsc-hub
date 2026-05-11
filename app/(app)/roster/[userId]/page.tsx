@@ -14,6 +14,7 @@ export default async function ProfilePage({
     include: {
       medals: { orderBy: { awardedAt: "desc" } },
       patches: { orderBy: { awardedAt: "desc" } },
+      inviteRedemption: { include: { invite: { select: { label: true, code: true } } } },
       heldSlots: {
         include: { team: { select: { id: true, name: true, callsign: true, color: true } } },
       },
@@ -29,7 +30,17 @@ export default async function ProfilePage({
         eyebrow={`OPERADOR · ${user.id.slice(-6).toUpperCase()}`}
         title={(user.nickname ?? user.discordUsername ?? "Operativo")}
         description={user.discordUsername ? `@${user.discordUsername} · ${rank.label}` : rank.label}
-        stamps={[{ label: `▸ ${user.permission}`, tone: user.permission === "ADMIN" ? "amber" : "default" }]}
+        stamps={[
+          { label: `▸ ${user.permission}`, tone: user.permission === "ADMIN" ? "amber" : "default" },
+          ...(user.inviteRedemption
+            ? [
+                {
+                  label: `🎟️ vía ${user.inviteRedemption.invite.label}`,
+                  tone: "muted" as const,
+                },
+              ]
+            : []),
+        ]}
       />
       <div className="px-7 pb-7 grid lg:grid-cols-[280px_1fr] gap-6">
         {/* Left — ID card */}
