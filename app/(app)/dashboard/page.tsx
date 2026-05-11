@@ -97,9 +97,11 @@ export default async function DashboardPage() {
   const display = user.nickname || user.discordUsername || "Operativo";
   const rankShort = (rank.label || "OPERATIVO").split(" ").slice(0, 2).join(" ");
 
-  // Build pins from upcoming events
+  // Build pins from upcoming events. The event title is shown as-is —
+  // not every event is an "operation" (briefings, training, social) so
+  // forcing an "OP-" prefix misled the user.
   const pins = upcoming.slice(0, 5).map((e, i) => ({
-    id: `OP-${e.title.toUpperCase().replace(/[^A-Z0-9]+/g, "-").slice(0, 14)}`,
+    id: e.title.toUpperCase().slice(0, 18),
     label: e.location ?? `Sector ${String.fromCharCode(65 + (i % 6))}${i + 1}`,
     x: 12 + hashBucket(e.id, 17) * 0.78,
     y: 14 + hashBucket(e.id, 31) * 0.6,
