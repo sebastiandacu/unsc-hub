@@ -81,11 +81,13 @@ export function ScheduleClient({
   isAdmin,
   events,
   planetName,
+  shipName,
 }: {
   userId: string;
   isAdmin: boolean;
   events: EventInfo[];
   planetName: string;
+  shipName: string;
 }) {
   const [openId, setOpenId] = useState<string | null>(null);
   const [view, setView] = useState<"calendar" | "planning">("calendar");
@@ -148,7 +150,8 @@ export function ScheduleClient({
         <PlanningMode
           events={planningEvents}
           initialPlanetName={planetName}
-          canEditPlanetName={isAdmin}
+          initialShipName={shipName}
+          canEditLabels={isAdmin}
         />
       )}
 

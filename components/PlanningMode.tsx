@@ -14,7 +14,10 @@
 import { useEffect, useRef, useState, useTransition } from "react";
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
-import { setPlanetName as setPlanetNameAction } from "@/lib/actions/planning";
+import {
+  setPlanetName as setPlanetNameAction,
+  setShipName as setShipNameAction,
+} from "@/lib/actions/planning";
 
 export type PlanningEvent = {
   /** Stable code: usually slug of the title. */
@@ -319,18 +322,29 @@ function buildShipPing(color: number, scale = 1): THREE.Group {
 export function PlanningMode({
   events,
   initialPlanetName,
-  canEditPlanetName = false,
+  initialShipName,
+  canEditLabels = false,
 }: {
   events: PlanningEvent[];
   initialPlanetName: string;
-  canEditPlanetName?: boolean;
+  initialShipName: string;
+  /** When true, the planet AND ship labels become click-to-edit (admin only). */
+  canEditLabels?: boolean;
 }) {
   const mountRef = useRef<HTMLDivElement>(null);
   const labelsRef = useRef<HTMLDivElement>(null);
   const [autoOrbit, setAutoOrbit] = useState(true);
-  const [editingName, setEditingName] = useState(false);
+
+  // Planet label state
+  const [editingPlanet, setEditingPlanet] = useState(false);
   const [planetName, setPlanetName] = useState(initialPlanetName);
-  const [draftName, setDraftName] = useState(initialPlanetName);
+  const [planetDraft, setPlanetDraft] = useState(initialPlanetName);
+
+  // Ship label state
+  const [editingShip, setEditingShip] = useState(false);
+  const [shipName, setShipName] = useState(initialShipName);
+  const [shipDraft, setShipDraft] = useState(initialShipName);
+
   const [pending, start] = useTransition();
   const stateRef = useRef<{ autoEnabled?: boolean; setAutoOrbit?: (v: boolean) => void }>({});
 
@@ -647,9 +661,9 @@ export function PlanningMode({
     if (stateRef.current.setAutoOrbit) stateRef.current.setAutoOrbit(autoOrbit);
   }, [autoOrbit]);
 
-  function commitName() {
-    setEditingName(false);
-    const trimmed = draftName.trim().toUpperCase();
+  function commitPlanet() {
+    setEditingPlanet(false);
+    const trimmed = planetDraft.trim().toUpperCase();
     if (!trimmed || trimmed === planetName) return;
     setPlanetName(trimmed);
     start(async () => {
@@ -657,6 +671,20 @@ export function PlanningMode({
         await setPlanetNameAction(trimmed);
       } catch (e) {
         console.error("[planning] persist planet name failed", e);
+      }
+    });
+  }
+
+  function commitShip() {
+    setEditingShip(false);
+    const trimmed = shipDraft.trim().toUpperCase();
+    if (!trimmed || trimmed === shipName) return;
+    setShipName(trimmed);
+    start(async () => {
+      try {
+        await setShipNameAction(trimmed);
+      } catch (e) {
+        console.error("[planning] persist ship name failed", e);
       }
     });
   }
@@ -678,7 +706,7 @@ export function PlanningMode({
       <div className="plan-corner" style={{ bottom: 14, left: 14, borderBottom: "1px solid var(--color-accent)", borderLeft: "1px solid var(--color-accent)" }} />
       <div className="plan-corner" style={{ bottom: 14, right: 14, borderBottom: "1px solid var(--color-accent)", borderRight: "1px solid var(--color-accent)" }} />
 
-      {/* Top-left HUD */}
+      {/* Top-left HUD with editable ship name */}
       <div
         className="absolute z-[5] uppercase"
         style={{
@@ -692,14 +720,55 @@ export function PlanningMode({
       >
         // PLANNING MODE · HOLO-PROYECCIÓN
         <br />
-        <span style={{ color: "var(--color-accent)" }}>NAVE: UNSC GORGON-04 · CLASE FRIGATA</span>
+        NAVE:&nbsp;
+        {editingShip ? (
+          <input
+            autoFocus
+            value={shipDraft}
+            onChange={(e) => setShipDraft(e.target.value)}
+            onBlur={commitShip}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") commitShip();
+              if (e.key === "Escape") {
+                setShipDraft(shipName);
+                setEditingShip(false);
+              }
+            }}
+            style={{
+              background: "rgba(77,208,255,0.08)",
+              border: "1px solid var(--color-accent)",
+              padding: "2px 6px",
+              fontFamily: "var(--font-mono)",
+              fontSize: 10,
+              letterSpacing: "0.22em",
+              color: "var(--color-accent)",
+              textTransform: "uppercase",
+              outline: "none",
+              width: 280,
+            }}
+          />
+        ) : (
+          <span
+            onClick={() => canEditLabels && setEditingShip(true)}
+            style={{
+              color: "var(--color-accent)",
+              cursor: canEditLabels ? "pointer" : "default",
+            }}
+            title={canEditLabels ? "Click para renombrar (admin)" : undefined}
+          >
+            {shipName}
+            {canEditLabels && (
+              <span style={{ opacity: 0.5, fontSize: 9, marginLeft: 4 }}>✎</span>
+            )}
+          </span>
+        )}
         <br />
         <span style={{ color: "var(--color-amber)", fontSize: 9 }}>
           {shipCount} EVENTOS A BORDO
         </span>
       </div>
 
-      {/* Top-right HUD with editable name */}
+      {/* Top-right HUD with editable planet name */}
       <div
         className="absolute z-[5] uppercase text-right"
         style={{
@@ -712,17 +781,17 @@ export function PlanningMode({
         }}
       >
         OBJETIVO:&nbsp;
-        {editingName ? (
+        {editingPlanet ? (
           <input
             autoFocus
-            value={draftName}
-            onChange={(e) => setDraftName(e.target.value)}
-            onBlur={commitName}
+            value={planetDraft}
+            onChange={(e) => setPlanetDraft(e.target.value)}
+            onBlur={commitPlanet}
             onKeyDown={(e) => {
-              if (e.key === "Enter") commitName();
+              if (e.key === "Enter") commitPlanet();
               if (e.key === "Escape") {
-                setDraftName(planetName);
-                setEditingName(false);
+                setPlanetDraft(planetName);
+                setEditingPlanet(false);
               }
             }}
             style={{
@@ -741,15 +810,15 @@ export function PlanningMode({
           />
         ) : (
           <span
-            onClick={() => canEditPlanetName && setEditingName(true)}
+            onClick={() => canEditLabels && setEditingPlanet(true)}
             style={{
               color: "var(--color-accent)",
-              cursor: canEditPlanetName ? "pointer" : "default",
+              cursor: canEditLabels ? "pointer" : "default",
             }}
-            title={canEditPlanetName ? "Click para renombrar (admin)" : undefined}
+            title={canEditLabels ? "Click para renombrar (admin)" : undefined}
           >
             {planetName}
-            {canEditPlanetName && (
+            {canEditLabels && (
               <span style={{ opacity: 0.5, fontSize: 9, marginLeft: 4 }}>✎</span>
             )}
           </span>

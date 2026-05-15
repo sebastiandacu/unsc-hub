@@ -3,7 +3,7 @@ import { prisma } from "@/lib/db";
 import { requireUser, hasPermission } from "@/lib/auth/guards";
 import { ScheduleClient } from "./ScheduleClient";
 import { eventVisibilityWhere } from "@/lib/visibility";
-import { getPlanetName } from "@/lib/actions/planning";
+import { getPlanningSettings } from "@/lib/actions/planning";
 
 export default async function SchedulePage() {
   const user = await requireUser();
@@ -11,7 +11,7 @@ export default async function SchedulePage() {
 
   const sixtyDaysAgo = new Date(Date.now() - 60 * 86400000);
   const visWhere = await eventVisibilityWhere(user.id, isAdmin);
-  const [events, planetName] = await Promise.all([
+  const [events, planning] = await Promise.all([
     prisma.event.findMany({
       where: { AND: [{ startsAt: { gte: sixtyDaysAgo } }, visWhere] },
       orderBy: { startsAt: "asc" },
@@ -22,7 +22,7 @@ export default async function SchedulePage() {
         restrictedTeams: { select: { id: true, name: true } },
       },
     }),
-    getPlanetName(),
+    getPlanningSettings(),
   ]);
 
   return (
@@ -39,7 +39,8 @@ export default async function SchedulePage() {
         <ScheduleClient
           userId={user.id}
           isAdmin={isAdmin}
-          planetName={planetName}
+          planetName={planning.planetName}
+          shipName={planning.shipName}
           events={events.map((e) => ({
             id: e.id,
             title: e.title,

@@ -82,6 +82,7 @@ enum ApplicationStatus {
 model PlanetSettings {
   id         String   @id @default("default")
   planetName String   @default("ARCADIA-VII")
+  shipName   String   @default("UNSC GORGON-04 · CLASE FRIGATA")
   updatedAt  DateTime @updatedAt
 }
 
