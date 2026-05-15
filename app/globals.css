@@ -641,4 +641,67 @@
     mix-blend-mode: overlay;
     opacity: 0.08;
   }
+
+  /* ===========================================================
+     PLANNING MODE (3D holo viewer overlays)
+     =========================================================== */
+  .plan-corner {
+    position: absolute;
+    width: 22px;
+    height: 22px;
+    pointer-events: none;
+    z-index: 5;
+  }
+  .plan-label {
+    position: absolute;
+    top: 0;
+    left: 0;
+    pointer-events: none;
+    transform-origin: 0 0;
+    transition: opacity 200ms ease;
+    --c: #4dd0ff;
+  }
+  .plan-label .plan-label-inner {
+    position: absolute;
+    left: 14px;
+    top: -14px;
+    background: rgba(2, 8, 18, 0.85);
+    border: 1px solid var(--c);
+    padding: 4px 8px;
+    font-family: var(--font-mono);
+    font-size: 9px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    white-space: nowrap;
+    color: var(--c);
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    box-shadow: 0 0 12px rgba(77, 208, 255, 0.18);
+  }
+  .plan-label .plan-label-name {
+    color: var(--color-text);
+    letter-spacing: 0.06em;
+    font-size: 10px;
+    text-transform: none;
+  }
+  .plan-label .plan-label-stem {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 12px;
+    height: 1px;
+    background: linear-gradient(90deg, var(--c), transparent);
+  }
+  .plan-label .plan-label-inner::before {
+    content: "";
+    position: absolute;
+    left: -4px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 4px;
+    height: 4px;
+    background: var(--c);
+    box-shadow: 0 0 6px var(--c);
+  }
 }

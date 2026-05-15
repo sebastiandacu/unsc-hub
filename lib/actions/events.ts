@@ -52,6 +52,10 @@ const eventSchema = z.object({
   pingEveryone: z.boolean().optional(),
   /// Empty = public (everyone). Non-empty = restricted to members of these teams.
   restrictedTeamIds: z.array(z.string()).optional(),
+  /// Where the event pin shows in the 3D Planning Mode viewer.
+  /// "planet" (default) = surface point, "ship" = on the orbiting frigate,
+  /// "none" = not shown in planning view.
+  planningTarget: z.enum(["planet", "ship", "none"]).optional(),
 });
 
 import { notifyMany } from "@/lib/notify";
@@ -97,6 +101,7 @@ export async function createEvent(input: z.infer<typeof eventSchema>) {
       createdById: admin.id,
       postToDiscord: postToDiscordFlag,
       pingEveryone: pingEveryoneFlag,
+      planningTarget: data.planningTarget === "none" ? null : (data.planningTarget ?? "planet"),
       restrictedTeams:
         restrictedTeamIds.length > 0
           ? { connect: restrictedTeamIds.map((id) => ({ id })) }
@@ -180,6 +185,7 @@ export async function updateEvent(eventId: string, input: z.infer<typeof eventSc
       slidesEmbedUrl: data.slidesEmbedUrl || null,
       postToDiscord: data.postToDiscord ?? true,
       pingEveryone: data.pingEveryone ?? true,
+      planningTarget: data.planningTarget === "none" ? null : (data.planningTarget ?? "planet"),
       restrictedTeams: { set: restrictedTeamIds.map((id) => ({ id })) },
     },
   });

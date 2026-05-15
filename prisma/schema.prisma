@@ -76,6 +76,15 @@ enum ApplicationStatus {
 /// Honorable Discharge requests: when a user wants to leave or switch
 /// out of an exclusive team, they file one of these and an admin must
 /// approve before the slot move actually happens.
+/// Singleton row holding global Planning Mode settings (the planet name
+/// admins set in the 3D viewer header). Identified by a fixed id so
+/// upserts always hit the same row.
+model PlanetSettings {
+  id         String   @id @default("default")
+  planetName String   @default("ARCADIA-VII")
+  updatedAt  DateTime @updatedAt
+}
+
 /// Invite codes let users from partner communities log in without
 /// having the AUTHORIZED_ROLE_ID. Admin generates a code, partner
 /// distributes it to their members, members hit /login?invite=CODE
@@ -533,6 +542,11 @@ model Event {
   /// embed in place when RSVPs change or AAR drops.
   discordChannelId String?
   discordMessageId String?
+
+  /// Where the event pin shows up in the 3D Planning Mode visualizer:
+  /// "planet" (surface point), "ship" (anchored to the orbiting frigate),
+  /// or null (hidden from planning view).
+  planningTarget String? @default("planet")
 
   createdBy        User        @relation(fields: [createdById], references: [id])
   rsvps            EventRSVP[]

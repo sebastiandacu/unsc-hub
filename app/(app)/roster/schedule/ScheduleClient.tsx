@@ -2,7 +2,47 @@
 
 import { useEffect, useMemo, useState, useTransition } from "react";
 import { createPortal } from "react-dom";
+import dynamic from "next/dynamic";
 import type { RsvpStatus, EventOutcome } from "@prisma/client";
+import type { PlanningEvent } from "@/components/PlanningMode";
+
+// Heavy three.js component — lazy-loaded only when the user toggles
+// into Planning Mode, so the initial /roster/schedule bundle stays
+// small and SSR doesn't try to instantiate WebGL.
+const PlanningMode = dynamic(
+  () => import("@/components/PlanningMode").then((m) => m.PlanningMode),
+  {
+    ssr: false,
+    loading: () => (
+      <div
+        className="grid place-items-center w-full text-[var(--color-muted)] font-mono text-xs uppercase tracking-[0.2em] border border-[var(--color-border)]"
+        style={{ height: 620, background: "rgba(2,8,18,0.6)" }}
+      >
+        Cargando holo-proyección…
+      </div>
+    ),
+  },
+);
+
+function outcomeToPingColor(outcome: EventOutcome): PlanningEvent["color"] {
+  switch (outcome) {
+    case "SUCCESS":   return "green";
+    case "PARTIAL":   return "amber";
+    case "FAILURE":   return "red";
+    case "CANCELLED": return "primary";
+    default:          return "primary";
+  }
+}
+
+function eventToCode(title: string): string {
+  return title
+    .toUpperCase()
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .replace(/[^A-Z0-9]+/g, "-")
+    .replace(/(^-|-$)/g, "")
+    .slice(0, 16) || "OP";
+}
 import { setRsvp, setEventOutcome } from "@/lib/actions/events";
 import { RichRenderer } from "@/components/editor/RichRenderer";
 import { RichEditor, type RichDoc } from "@/components/editor/RichEditor";
@@ -22,6 +62,7 @@ type EventInfo = {
   aarJson: object | null;
   aarPostedAt: string | null;
   rsvps: { userId: string; name: string; status: RsvpStatus }[];
+  planningTarget: "planet" | "ship" | "none";
 };
 
 const STATUSES: RsvpStatus[] = ["GOING", "MAYBE", "DECLINED"];
@@ -35,8 +76,19 @@ const OUTCOME_STYLES: Record<EventOutcome, { fg: string; bg: string; label: stri
   CANCELLED: { fg: "var(--color-muted)",   bg: "rgba(150,150,150,0.10)",          label: "⊘ CANCELLED" },
 };
 
-export function ScheduleClient({ userId, isAdmin, events }: { userId: string; isAdmin: boolean; events: EventInfo[] }) {
+export function ScheduleClient({
+  userId,
+  isAdmin,
+  events,
+  planetName,
+}: {
+  userId: string;
+  isAdmin: boolean;
+  events: EventInfo[];
+  planetName: string;
+}) {
   const [openId, setOpenId] = useState<string | null>(null);
+  const [view, setView] = useState<"calendar" | "planning">("calendar");
   const [pending, start] = useTransition();
   const [mounted, setMounted] = useState(false);
   useEffect(() => {
@@ -51,12 +103,54 @@ export function ScheduleClient({ userId, isAdmin, events }: { userId: string; is
   const open = events.find((e) => e.id === openId) ?? null;
   const myRsvp = open?.rsvps.find((r) => r.userId === userId)?.status ?? null;
 
+  // Build the planning event payload from real DB events that opted in.
+  const planningEvents: PlanningEvent[] = useMemo(
+    () =>
+      events
+        .filter((e) => e.planningTarget !== "none")
+        .map((e) => ({
+          code: eventToCode(e.title),
+          title: e.title,
+          target: e.planningTarget === "ship" ? "ship" : "planet",
+          color: outcomeToPingColor(e.outcome),
+        })),
+    [events],
+  );
+
   return (
     <>
-      <div className="grid gap-5" style={{ gridTemplateColumns: "minmax(0, 2.2fr) minmax(0, 1fr)" }}>
-        <MonthGrid events={events} onPick={(id) => setOpenId(id)} />
-        <UpcomingPanel events={events} onPick={(id) => setOpenId(id)} />
+      <div className="flex items-center gap-1.5 mb-4">
+        <button
+          onClick={() => setView("calendar")}
+          className={`chip ${view === "calendar" ? "chip-active" : ""}`}
+        >
+          ◾ CALENDARIO
+        </button>
+        <button
+          onClick={() => setView("planning")}
+          className={`chip ${view === "planning" ? "chip-active" : ""}`}
+        >
+          ◉ PLANNING MODE 3D
+        </button>
+        {view === "planning" && (
+          <span className="label-mono ml-3 text-[var(--color-text-dim)]">
+            {planningEvents.length} eventos · {planningEvents.filter((e) => e.target === "ship").length} a bordo
+          </span>
+        )}
       </div>
+
+      {view === "calendar" ? (
+        <div className="grid gap-5" style={{ gridTemplateColumns: "minmax(0, 2.2fr) minmax(0, 1fr)" }}>
+          <MonthGrid events={events} onPick={(id) => setOpenId(id)} />
+          <UpcomingPanel events={events} onPick={(id) => setOpenId(id)} />
+        </div>
+      ) : (
+        <PlanningMode
+          events={planningEvents}
+          initialPlanetName={planetName}
+          canEditPlanetName={isAdmin}
+        />
+      )}
 
       {open && mounted && createPortal(
         <div className="fixed inset-0 z-50 overflow-y-auto bg-black/70" onClick={() => setOpenId(null)}>

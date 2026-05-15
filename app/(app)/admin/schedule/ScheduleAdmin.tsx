@@ -20,6 +20,7 @@ type EventInfo = {
   postToDiscord: boolean;
   pingEveryone: boolean;
   restrictedTeamIds: string[];
+  planningTarget: "planet" | "ship" | "none";
 };
 
 function toLocalInput(d?: Date | null) {
@@ -130,6 +131,9 @@ function EventForm({ initial, teams, onDone }: { initial?: EventInfo; teams: Tea
   const [postToDiscord, setPostToDiscord] = useState(initial?.postToDiscord ?? true);
   const [pingEveryone, setPingEveryone] = useState(initial?.pingEveryone ?? true);
   const [restrictedTeamIds, setRestrictedTeamIds] = useState<string[]>(initial?.restrictedTeamIds ?? []);
+  const [planningTarget, setPlanningTarget] = useState<"planet" | "ship" | "none">(
+    initial?.planningTarget ?? "planet",
+  );
   const [pending, start] = useTransition();
   const [error, setError] = useState<string | null>(null);
 
@@ -154,6 +158,7 @@ function EventForm({ initial, teams, onDone }: { initial?: EventInfo; teams: Tea
           postToDiscord,
           pingEveryone,
           restrictedTeamIds,
+          planningTarget,
         };
         if (initial) await updateEvent(initial.id, payload);
         else await createEvent(payload);
@@ -206,6 +211,32 @@ function EventForm({ initial, teams, onDone }: { initial?: EventInfo; teams: Tea
         <div className="label-mono mb-2">Briefing</div>
         <RichEditor value={briefingJson} onChange={setBriefingJson} placeholder="Briefing de la misión..." imageEndpoint="postImage" />
       </div>
+
+      <section className="panel-elevated panel-bracket p-4">
+        <div className="label-mono-accent mb-2">// Planning Mode 3D — pin del evento</div>
+        <div className="text-[10.5px] text-[var(--color-text-dim)] normal-case tracking-normal mb-3 leading-relaxed">
+          Dónde aparece este evento en la holo-proyección de Planning Mode (toggle "PLANNING MODE 3D" en /roster/schedule).
+        </div>
+        <div className="flex gap-2">
+          {(["planet", "ship", "none"] as const).map((opt) => {
+            const labels = {
+              planet: "◉ Planeta (superficie)",
+              ship: "▶ Nave (a bordo)",
+              none: "— Ninguno (oculto)",
+            };
+            return (
+              <button
+                key={opt}
+                type="button"
+                onClick={() => setPlanningTarget(opt)}
+                className={`chip ${planningTarget === opt ? "chip-active" : ""}`}
+              >
+                {labels[opt]}
+              </button>
+            );
+          })}
+        </div>
+      </section>
 
       <VisibilityControls
         teams={teams}

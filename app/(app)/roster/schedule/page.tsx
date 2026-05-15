@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db";
 import { requireUser, hasPermission } from "@/lib/auth/guards";
 import { ScheduleClient } from "./ScheduleClient";
 import { eventVisibilityWhere } from "@/lib/visibility";
+import { getPlanetName } from "@/lib/actions/planning";
 
 export default async function SchedulePage() {
   const user = await requireUser();
@@ -10,16 +11,19 @@ export default async function SchedulePage() {
 
   const sixtyDaysAgo = new Date(Date.now() - 60 * 86400000);
   const visWhere = await eventVisibilityWhere(user.id, isAdmin);
-  const events = await prisma.event.findMany({
-    where: { AND: [{ startsAt: { gte: sixtyDaysAgo } }, visWhere] },
-    orderBy: { startsAt: "asc" },
-    include: {
-      rsvps: {
-        include: { user: { select: { id: true, nickname: true, discordUsername: true } } },
+  const [events, planetName] = await Promise.all([
+    prisma.event.findMany({
+      where: { AND: [{ startsAt: { gte: sixtyDaysAgo } }, visWhere] },
+      orderBy: { startsAt: "asc" },
+      include: {
+        rsvps: {
+          include: { user: { select: { id: true, nickname: true, discordUsername: true } } },
+        },
+        restrictedTeams: { select: { id: true, name: true } },
       },
-      restrictedTeams: { select: { id: true, name: true } },
-    },
-  });
+    }),
+    getPlanetName(),
+  ]);
 
   return (
     <>
@@ -35,6 +39,7 @@ export default async function SchedulePage() {
         <ScheduleClient
           userId={user.id}
           isAdmin={isAdmin}
+          planetName={planetName}
           events={events.map((e) => ({
             id: e.id,
             title: e.title,
@@ -48,6 +53,11 @@ export default async function SchedulePage() {
             outcome: e.outcome,
             aarJson: (e.aarJson ?? null) as object | null,
             aarPostedAt: e.aarPostedAt?.toISOString() ?? null,
+            planningTarget: (e.planningTarget === "ship"
+              ? "ship"
+              : e.planningTarget === null
+                ? "none"
+                : "planet") as "planet" | "ship" | "none",
             rsvps: e.rsvps.map((r) => ({
               userId: r.user.id,
               name: r.user.nickname ?? r.user.discordUsername ?? "Operative",

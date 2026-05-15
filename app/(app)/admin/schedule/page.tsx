@@ -54,6 +54,11 @@ export default async function AdminSchedulePage() {
             postToDiscord: e.postToDiscord,
             pingEveryone: e.pingEveryone,
             restrictedTeamIds: e.restrictedTeams.map((t) => t.id),
+            planningTarget: (e.planningTarget === "ship"
+              ? "ship"
+              : e.planningTarget === null
+                ? "none"
+                : "planet") as "planet" | "ship" | "none",
           }))}
         />
       </div>
