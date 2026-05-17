@@ -288,23 +288,25 @@ export async function joinSlot(slotId: string, confirmRelease = false): Promise<
   const gate = await checkRankGate(user.id, slot.team.minRankPriority, slot.minRankPriority);
   if (gate) return { ok: false, error: gate };
 
-  // Honorable Discharge guard: if the user holds a slot in any
-  // exclusive team OTHER than this one, they can't just hop — they
-  // need to file a discharge request from that team first. The UI
-  // surfaces a "request discharge" modal for this case; this server
-  // check is the backstop.
-  const exclusivesHeld = await exclusiveTeamsHeldByUser(user.id);
-  const exclusiveBlockers = exclusivesHeld.filter((id) => id !== slot.teamId);
-  if (exclusiveBlockers.length > 0) {
-    const blockingTeams = await prisma.team.findMany({
-      where: { id: { in: exclusiveBlockers } },
-      select: { name: true },
-    });
-    const names = blockingTeams.map((t) => t.name).join(", ");
-    return {
-      ok: false,
-      error: `Estás en ${exclusiveBlockers.length === 1 ? "un equipo exclusivo" : "equipos exclusivos"} (${names}). Pedí Honorable Discharge desde ahí antes de unirte a otro.`,
-    };
+  // Honorable Discharge guard: if the TARGET team is also exclusive
+  // (allowsMultiMembership=false), joining it means leaving every other
+  // team — including any exclusive ones — so we require a discharge from
+  // each blocker. If the target is non-exclusive, the user can stack it
+  // on top of their existing memberships freely; no discharge needed.
+  if (!slot.team.allowsMultiMembership) {
+    const exclusivesHeld = await exclusiveTeamsHeldByUser(user.id);
+    const exclusiveBlockers = exclusivesHeld.filter((id) => id !== slot.teamId);
+    if (exclusiveBlockers.length > 0) {
+      const blockingTeams = await prisma.team.findMany({
+        where: { id: { in: exclusiveBlockers } },
+        select: { name: true },
+      });
+      const names = blockingTeams.map((t) => t.name).join(", ");
+      return {
+        ok: false,
+        error: `Estás en ${exclusiveBlockers.length === 1 ? "un equipo exclusivo" : "equipos exclusivos"} (${names}). Pedí Honorable Discharge desde ahí antes de unirte a otro exclusivo.`,
+      };
+    }
   }
 
   // Always release any other slot the user holds in THIS team (1 slot
@@ -421,20 +423,23 @@ export async function applyToSlot(slotId: string, message: string): Promise<{ ok
   const gate = await checkRankGate(user.id, slot.team.minRankPriority, slot.minRankPriority);
   if (gate) return { ok: false, error: gate };
 
-  // Honorable Discharge guard: same as joinSlot — can't apply to a
-  // different team while you're locked into an exclusive one.
-  const exclusivesHeld = await exclusiveTeamsHeldByUser(user.id);
-  const exclusiveBlockers = exclusivesHeld.filter((id) => id !== slot.teamId);
-  if (exclusiveBlockers.length > 0) {
-    const blockingTeams = await prisma.team.findMany({
-      where: { id: { in: exclusiveBlockers } },
-      select: { name: true },
-    });
-    const names = blockingTeams.map((t) => t.name).join(", ");
-    return {
-      ok: false,
-      error: `Estás en ${exclusiveBlockers.length === 1 ? "un equipo exclusivo" : "equipos exclusivos"} (${names}). Pedí Honorable Discharge desde ahí antes de aplicar a otro.`,
-    };
+  // Honorable Discharge guard: same as joinSlot — only blocks when the
+  // TARGET team is exclusive. Non-exclusive teams can be stacked on top
+  // of any existing membership.
+  if (!slot.team.allowsMultiMembership) {
+    const exclusivesHeld = await exclusiveTeamsHeldByUser(user.id);
+    const exclusiveBlockers = exclusivesHeld.filter((id) => id !== slot.teamId);
+    if (exclusiveBlockers.length > 0) {
+      const blockingTeams = await prisma.team.findMany({
+        where: { id: { in: exclusiveBlockers } },
+        select: { name: true },
+      });
+      const names = blockingTeams.map((t) => t.name).join(", ");
+      return {
+        ok: false,
+        error: `Estás en ${exclusiveBlockers.length === 1 ? "un equipo exclusivo" : "equipos exclusivos"} (${names}). Pedí Honorable Discharge desde ahí antes de aplicar a otro exclusivo.`,
+      };
+    }
   }
 
   const existing = await prisma.teamApplication.findFirst({

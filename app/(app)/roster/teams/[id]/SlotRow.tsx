@@ -53,10 +53,12 @@ export function SlotRow({
   const [dischargeMode, setDischargeMode] = useState<"leave" | "switch" | null>(null);
 
   const isExclusive = !team.allowsMultiMembership;
-  // First (typically only) exclusive team the viewer is in. If set, joining
-  // / applying to a DIFFERENT team requires discharging from this one first.
+  // First (typically only) exclusive team the viewer is in. The discharge
+  // flow only kicks in when the TARGET team is also exclusive — joining
+  // a non-exclusive team alongside an exclusive one is fine, since the
+  // target explicitly allows multi-membership.
   const blocker = viewerExclusiveBlockers?.[0] ?? null;
-  const blockedFromActing = !!blocker && blocker.id !== team.id;
+  const blockedFromActing = !!blocker && blocker.id !== team.id && isExclusive;
 
   function tryJoin(confirmRelease = false) {
     setError(null);
