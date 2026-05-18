@@ -154,7 +154,12 @@ export function AppShell({
                   // {isAdmin ? "Admin" : "Officer"}
                 </div>
                 <div className="space-y-0.5">
-                  {(isAdmin ? ADMIN_NAV : ADMIN_NAV.filter((i) => i.href === "/admin/users")).map(
+                  {(isAdmin
+                    ? ADMIN_NAV
+                    : ADMIN_NAV.filter((i) =>
+                        ["/admin/users", "/admin/schedule"].includes(i.href),
+                      )
+                  ).map(
                     (item) => (
                       <NavItem key={item.href} item={item} pathname={pathname} accent="danger" />
                     )

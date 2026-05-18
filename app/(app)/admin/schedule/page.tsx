@@ -1,10 +1,11 @@
 import { PageHeader } from "@/components/PageHeader";
 import { prisma } from "@/lib/db";
-import { requireAdmin } from "@/lib/auth/guards";
+import { requirePermission } from "@/lib/auth/guards";
 import { ScheduleAdmin } from "./ScheduleAdmin";
 
 export default async function AdminSchedulePage() {
-  await requireAdmin();
+  // Officers can run ops too — every event action audit-logs the actor.
+  await requirePermission("OFFICER");
   const [events, teams] = await Promise.all([
     prisma.event.findMany({
       orderBy: { startsAt: "desc" },

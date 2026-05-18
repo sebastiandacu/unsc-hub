@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
-import { requireAdmin, requireUser } from "@/lib/auth/guards";
+import { requirePermission, requireUser } from "@/lib/auth/guards";
 import { notifyAllUsers } from "@/lib/notify";
 import { absoluteUrl, postToDiscord } from "@/lib/discord-webhook";
 import { postEventToDiscord, refreshEventDiscordMessage } from "@/lib/discord-event-message";
@@ -82,7 +82,9 @@ async function notifyForEvent(
 }
 
 export async function createEvent(input: z.infer<typeof eventSchema>) {
-  const admin = await requireAdmin();
+  // Officers can run ops too. All event-management actions audit-log the
+  // actor so misuse is traceable.
+  const admin = await requirePermission("OFFICER");
   const data = eventSchema.parse(input);
   const postToDiscordFlag = data.postToDiscord ?? true;
   const pingEveryoneFlag = data.pingEveryone ?? true;
@@ -169,7 +171,7 @@ export async function createEvent(input: z.infer<typeof eventSchema>) {
 }
 
 export async function updateEvent(eventId: string, input: z.infer<typeof eventSchema>) {
-  const admin = await requireAdmin();
+  const admin = await requirePermission("OFFICER");
   const data = eventSchema.parse(input);
   const restrictedTeamIds = data.restrictedTeamIds ?? [];
   await prisma.event.update({
@@ -197,7 +199,7 @@ export async function updateEvent(eventId: string, input: z.infer<typeof eventSc
 }
 
 export async function deleteEvent(eventId: string) {
-  const admin = await requireAdmin();
+  const admin = await requirePermission("OFFICER");
   await prisma.event.delete({ where: { id: eventId } });
   await prisma.auditLog.create({
     data: { actorId: admin.id, action: "event.delete", targetType: "Event", targetId: eventId },
@@ -214,7 +216,7 @@ const aarSchema = z.object({
 });
 
 export async function setEventOutcome(eventId: string, input: z.infer<typeof aarSchema>) {
-  const admin = await requireAdmin();
+  const admin = await requirePermission("OFFICER");
   const data = aarSchema.parse(input);
   if (!OUTCOMES.includes(data.outcome)) throw new Error("Invalid outcome");
 
@@ -282,7 +284,7 @@ export async function setEventOutcome(eventId: string, input: z.infer<typeof aar
  * Useful for events created before the Discord webhook was configured.
  */
 export async function announceEvent(eventId: string) {
-  const admin = await requireAdmin();
+  const admin = await requirePermission("OFFICER");
   const event = await prisma.event.findUnique({
     where: { id: eventId },
     select: { id: true, title: true, startsAt: true, location: true },
