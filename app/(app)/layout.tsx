@@ -19,6 +19,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     <AppShell
       user={{ nickname: user.nickname, discordUsername: user.discordUsername, avatarUrl: user.avatarUrl }}
       isAdmin={user.permission === "ADMIN"}
+      isOfficer={user.permission === "OFFICER"}
       notifications={{ items, unreadCount }}
     >
       {children}

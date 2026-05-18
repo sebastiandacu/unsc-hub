@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
-import { requireAdmin, requireUser } from "@/lib/auth/guards";
+import { requireAdmin, requirePermission, requireRankOverUser, requireUser } from "@/lib/auth/guards";
 import { resolveRank } from "@/lib/rank";
 import { notify, notifyAdmins } from "@/lib/notify";
 import {
@@ -544,15 +544,16 @@ export async function reviewApplication(applicationId: string, approve: boolean,
 }
 
 export async function adminKickFromSlot(slotId: string) {
-  const admin = await requireAdmin();
   const slot = await prisma.teamSlot.findUnique({ where: { id: slotId } });
   if (!slot) throw new Error("Slot not found");
   if (!slot.holderId) return;
   const previousHolder = slot.holderId;
+  // Officer-or-higher AND outrank the operative being kicked.
+  const { actor } = await requireRankOverUser(previousHolder);
   await prisma.teamSlot.update({ where: { id: slotId }, data: { holderId: null } });
   await prisma.auditLog.create({
     data: {
-      actorId: admin.id,
+      actorId: actor.id,
       action: "slot.kick",
       targetType: "TeamSlot",
       targetId: slotId,
@@ -566,17 +567,15 @@ export async function adminKickFromSlot(slotId: string) {
 }
 
 export async function adminAssignToSlot(slotId: string, userId: string) {
-  const admin = await requireAdmin();
+  // Officer-or-higher AND outrank the user being assigned.
+  const { actor, target } = await requireRankOverUser(userId);
+  if (target.banned) throw new Error("User is banned site-wide.");
   const slot = await prisma.teamSlot.findUnique({
     where: { id: slotId },
     include: { team: true },
   });
   if (!slot) throw new Error("Slot not found");
   if (slot.holderId) throw new Error("Slot already filled — kick the current holder first.");
-
-  const target = await prisma.user.findUnique({ where: { id: userId }, select: { id: true, banned: true } });
-  if (!target) throw new Error("User not found");
-  if (target.banned) throw new Error("User is banned site-wide.");
 
   const banned = await prisma.teamBan.findUnique({
     where: { userId_teamId: { userId, teamId: slot.teamId } },
@@ -611,7 +610,7 @@ export async function adminAssignToSlot(slotId: string, userId: string) {
   await prisma.teamSlot.update({ where: { id: slotId }, data: { holderId: userId } });
   await prisma.auditLog.create({
     data: {
-      actorId: admin.id,
+      actorId: actor.id,
       action: "slot.assign",
       targetType: "TeamSlot",
       targetId: slotId,
@@ -625,8 +624,9 @@ export async function adminAssignToSlot(slotId: string, userId: string) {
 }
 
 export async function adminBanFromTeam(teamId: string, userId: string, reason?: string) {
-  const admin = await requireAdmin();
-  if (admin.id === userId) throw new Error("Don't ban yourself.");
+  // Officer-or-higher AND outrank the user being banned.
+  const { actor } = await requireRankOverUser(userId);
+  if (actor.id === userId) throw new Error("Don't ban yourself.");
   const team = await prisma.team.findUnique({ where: { id: teamId } });
   if (!team) throw new Error("Team not found");
 
@@ -640,13 +640,13 @@ export async function adminBanFromTeam(teamId: string, userId: string, reason?: 
 
   await prisma.teamBan.upsert({
     where: { userId_teamId: { userId, teamId } },
-    create: { userId, teamId, bannedById: admin.id, reason: reason?.trim() || null },
-    update: { bannedById: admin.id, reason: reason?.trim() || null },
+    create: { userId, teamId, bannedById: actor.id, reason: reason?.trim() || null },
+    update: { bannedById: actor.id, reason: reason?.trim() || null },
   });
 
   await prisma.auditLog.create({
     data: {
-      actorId: admin.id,
+      actorId: actor.id,
       action: "team.ban",
       targetType: "Team",
       targetId: teamId,
@@ -658,13 +658,13 @@ export async function adminBanFromTeam(teamId: string, userId: string, reason?: 
 }
 
 export async function adminUnbanFromTeam(teamId: string, userId: string) {
-  const admin = await requireAdmin();
+  const { actor } = await requireRankOverUser(userId);
   await prisma.teamBan.delete({
     where: { userId_teamId: { userId, teamId } },
   }).catch(() => {});
   await prisma.auditLog.create({
     data: {
-      actorId: admin.id,
+      actorId: actor.id,
       action: "team.unban",
       targetType: "Team",
       targetId: teamId,

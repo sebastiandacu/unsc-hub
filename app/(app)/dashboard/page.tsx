@@ -137,7 +137,7 @@ export default async function DashboardPage() {
   const permStamps: { label: string; tone?: "default" | "amber" | "green" }[] = [];
   permStamps.push({ label: "▸ AUTORIZADO" });
   if (hasPermission(user, "LICENSED")) permStamps.push({ label: "▸ LICENCIA", tone: "green" });
-  if (hasPermission(user, "CERTIFICATED")) permStamps.push({ label: "▸ CERTIFICADO", tone: "green" });
+  if (hasPermission(user, "OFFICER")) permStamps.push({ label: "▸ OFFICER", tone: "green" });
   if (isAdmin) permStamps.push({ label: "▸ ADMIN", tone: "amber" });
 
   // Bulletin items mapped
@@ -204,7 +204,7 @@ export default async function DashboardPage() {
 
   const idNumber = user.id.slice(-7).replace(/(.{2})(.+)/, "$1-$2").toUpperCase();
   const callsign = (user.nickname ?? user.discordUsername ?? "OPERATIVO").toUpperCase();
-  const accessLevel = isAdmin ? 5 : hasPermission(user, "CERTIFICATED") ? 4 : hasPermission(user, "LICENSED") ? 3 : 2;
+  const accessLevel = isAdmin ? 5 : hasPermission(user, "OFFICER") ? 4 : hasPermission(user, "LICENSED") ? 3 : 2;
 
   return (
     <div className="p-7 space-y-5 reveal-stagger">

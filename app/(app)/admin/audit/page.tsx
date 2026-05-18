@@ -1,7 +1,9 @@
 import { PageHeader } from "@/components/PageHeader";
 import { prisma } from "@/lib/db";
+import { requireAdmin } from "@/lib/auth/guards";
 
 export default async function AuditPage() {
+  await requireAdmin();
   let logs: Awaited<ReturnType<typeof prisma.auditLog.findMany>> = [];
   try {
     logs = await prisma.auditLog.findMany({

@@ -53,7 +53,11 @@ model VerificationToken {
 enum Permission {
   AUTHORIZED
   LICENSED
-  CERTIFICATED
+  /// Renamed from "CERTIFICATED" in the UI to OFFICER. The DB value
+  /// is preserved via @map so no migration is needed — existing rows
+  /// with permission='CERTIFICATED' keep working and surface as OFFICER
+  /// to the application.
+  OFFICER       @map("CERTIFICATED")
   ADMIN
 }
 

@@ -27,7 +27,7 @@ export default async function MyProfilePage() {
   const callsign = (user.nickname ?? user.discordUsername ?? "OPERATIVO").toUpperCase();
   const idNumber = user.id.slice(-7).replace(/(.{2})(.+)/, "$1-$2").toUpperCase();
   const accessLevel =
-    isAdmin ? 5 : hasPermission(user, "CERTIFICATED") ? 4 : hasPermission(user, "LICENSED") ? 3 : 2;
+    isAdmin ? 5 : hasPermission(user, "OFFICER") ? 4 : hasPermission(user, "LICENSED") ? 3 : 2;
   const ingreso = new Date(user.createdAt).toLocaleDateString("es-AR", {
     day: "2-digit",
     month: "2-digit",
@@ -85,7 +85,7 @@ export default async function MyProfilePage() {
           <div className="flex flex-wrap gap-1.5 mt-3">
             <span className="stamp">▸ AUTORIZADO</span>
             {hasPermission(user, "LICENSED") && <span className="stamp stamp-green">▸ LICENCIA</span>}
-            {hasPermission(user, "CERTIFICATED") && <span className="stamp stamp-green">▸ CERTIFICADO</span>}
+            {hasPermission(user, "OFFICER") && <span className="stamp stamp-green">▸ OFFICER</span>}
             {isAdmin && <span className="stamp stamp-amber">▸ ADMIN</span>}
           </div>
 

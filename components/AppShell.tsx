@@ -52,11 +52,14 @@ const TICKER_TOKENS = [
 export function AppShell({
   user,
   isAdmin,
+  isOfficer = false,
   notifications,
   children,
 }: {
   user: { nickname: string | null; discordUsername: string | null; avatarUrl: string | null };
   isAdmin: boolean;
+  /** Officer-but-not-admin gets a trimmed admin nav (only /admin/users). */
+  isOfficer?: boolean;
   notifications: { items: NotificationItem[]; unreadCount: number };
   children: React.ReactNode;
 }) {
@@ -144,16 +147,18 @@ export function AppShell({
               ))}
             </div>
 
-            {isAdmin && (
+            {(isAdmin || isOfficer) && (
               <>
                 <div className="label-mono mt-6 mb-2 px-3 text-[9px] flex items-center gap-2">
                   <span className="size-1 bg-[var(--color-danger)]" />
-                  // Admin
+                  // {isAdmin ? "Admin" : "Officer"}
                 </div>
                 <div className="space-y-0.5">
-                  {ADMIN_NAV.map((item) => (
-                    <NavItem key={item.href} item={item} pathname={pathname} accent="danger" />
-                  ))}
+                  {(isAdmin ? ADMIN_NAV : ADMIN_NAV.filter((i) => i.href === "/admin/users")).map(
+                    (item) => (
+                      <NavItem key={item.href} item={item} pathname={pathname} accent="danger" />
+                    )
+                  )}
                 </div>
               </>
             )}

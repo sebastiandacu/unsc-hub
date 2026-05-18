@@ -18,7 +18,13 @@ import {
 } from "@/lib/actions/admin";
 import { ImageUploadButton } from "@/components/ImageUploadButton";
 
-const PERMS: Permission[] = ["AUTHORIZED", "LICENSED", "CERTIFICATED", "ADMIN"];
+const PERMS: Permission[] = ["AUTHORIZED", "LICENSED", "OFFICER", "ADMIN"];
+const PERM_ORDER: Record<Permission, number> = {
+  AUTHORIZED: 0,
+  LICENSED: 1,
+  OFFICER: 2,
+  ADMIN: 3,
+};
 
 type UserData = {
   id: string;
@@ -40,17 +46,26 @@ type PatchTemplateLite = { id: string; name: string; imageUrl: string | null };
 export function UserRow({
   user,
   isSelf,
+  viewerPermission,
   medalTemplates,
   patchTemplates,
 }: {
   user: UserData;
   isSelf: boolean;
+  viewerPermission: Permission;
   medalTemplates: MedalTemplateLite[];
   patchTemplates: PatchTemplateLite[];
 }) {
   const [open, setOpen] = useState(false);
   const [pending, start] = useTransition();
   const display = user.nickname || user.discordUsername || "Operativo";
+  const isAdminViewer = viewerPermission === "ADMIN";
+  // Officers can only act on strictly lower ranks (AUTHORIZED, LICENSED).
+  // Admins can act on anyone. Self-editing always goes through /profile, so
+  // we surface the row read-only for self too.
+  const canEditTarget =
+    !isSelf &&
+    (isAdminViewer || PERM_ORDER[viewerPermission] > PERM_ORDER[user.permission]);
 
   return (
     <div className={`panel ${user.banned ? "border-[var(--color-danger)]/40" : ""}`}>
@@ -81,46 +96,62 @@ export function UserRow({
       {open && (
         <div className="border-t border-[var(--color-border)] p-4 grid md:grid-cols-2 gap-6 text-sm">
           <div className="space-y-3">
-            <div>
-              <label className="label-mono block mb-1">Permiso</label>
-              <select
-                disabled={pending || isSelf}
-                value={user.permission}
-                onChange={(e) => start(() => setPermission(user.id, e.target.value as Permission))}
-                className="w-full bg-[var(--color-base)] border border-[var(--color-border)] px-2 py-1 font-mono"
-              >
-                {PERMS.map((p) => (<option key={p} value={p}>{p}</option>))}
-              </select>
-            </div>
+            {isAdminViewer && (
+              <div>
+                <label className="label-mono block mb-1">Permiso</label>
+                <select
+                  disabled={pending || isSelf}
+                  value={user.permission}
+                  onChange={(e) => start(() => setPermission(user.id, e.target.value as Permission))}
+                  className="w-full bg-[var(--color-base)] border border-[var(--color-border)] px-2 py-1 font-mono"
+                >
+                  {PERMS.map((p) => (<option key={p} value={p}>{p}</option>))}
+                </select>
+              </div>
+            )}
 
-            <div>
-              <label className="label-mono block mb-1">RP Name (nickname)</label>
-              <NicknameField userId={user.id} initial={user.nickname} pending={pending} start={start} />
-            </div>
+            {canEditTarget ? (
+              <>
+                <div>
+                  <label className="label-mono block mb-1">RP Name (nickname)</label>
+                  <NicknameField userId={user.id} initial={user.nickname} pending={pending} start={start} />
+                </div>
 
-            <div>
-              <label className="label-mono block mb-1">Avatar / foto de perfil</label>
-              <AvatarField
-                userId={user.id}
-                initial={user.avatarUrl}
-                pending={pending}
-                start={start}
-              />
-            </div>
+                <div>
+                  <label className="label-mono block mb-1">Avatar / foto de perfil</label>
+                  <AvatarField
+                    userId={user.id}
+                    initial={user.avatarUrl}
+                    pending={pending}
+                    start={start}
+                  />
+                </div>
+              </>
+            ) : (
+              <div className="label-mono text-[var(--color-muted)] italic">
+                {isSelf
+                  ? "Editá tu propio perfil desde /profile."
+                  : "Solo podés editar operativos de rango menor."}
+              </div>
+            )}
 
-            <div>
-              <label className="label-mono block mb-1">Sobrescribir rango</label>
-              <RankOverrideField userId={user.id} initial={user.manualRankOverride} pending={pending} start={start} />
-            </div>
+            {isAdminViewer && (
+              <div>
+                <label className="label-mono block mb-1">Sobrescribir rango</label>
+                <RankOverrideField userId={user.id} initial={user.manualRankOverride} pending={pending} start={start} />
+              </div>
+            )}
 
             <div className="flex gap-2">
-              <button
-                disabled={pending || isSelf}
-                onClick={() => start(() => toggleBan(user.id))}
-                className="btn"
-              >
-                {user.banned ? "Desbanear" : "Banear"}
-              </button>
+              {isAdminViewer && (
+                <button
+                  disabled={pending || isSelf}
+                  onClick={() => start(() => toggleBan(user.id))}
+                  className="btn"
+                >
+                  {user.banned ? "Desbanear" : "Banear"}
+                </button>
+              )}
               <Link href={`/roster/${user.id}`} className="btn">Ver perfil</Link>
             </div>
           </div>
@@ -137,6 +168,7 @@ export function UserRow({
               uploadEndpoint="medalImage"
               pending={pending}
               start={start}
+              readOnly={!canEditTarget}
             />
             <CollectibleSection
               kind="patch"
@@ -149,6 +181,7 @@ export function UserRow({
               uploadEndpoint="patchImage"
               pending={pending}
               start={start}
+              readOnly={!canEditTarget}
             />
           </div>
         </div>
@@ -281,6 +314,7 @@ function CollectibleSection({
   uploadEndpoint,
   pending,
   start,
+  readOnly = false,
 }: {
   kind: "medal" | "patch";
   label: string;
@@ -292,6 +326,7 @@ function CollectibleSection({
   uploadEndpoint: "medalImage" | "patchImage";
   pending: boolean;
   start: (cb: () => void) => void;
+  readOnly?: boolean;
 }) {
   const [tplId, setTplId] = useState<string>("");
   const [customOpen, setCustomOpen] = useState(false);
@@ -314,18 +349,21 @@ function CollectibleSection({
               </div>
             )}
             <span className="font-mono text-xs truncate flex-1">{m.name}</span>
-            <button
-              disabled={pending}
-              onClick={() => start(() => onRevoke(m.id))}
-              className="label-mono text-[var(--color-danger)] hover:underline"
-            >
-              revocar
-            </button>
+            {!readOnly && (
+              <button
+                disabled={pending}
+                onClick={() => start(() => onRevoke(m.id))}
+                className="label-mono text-[var(--color-danger)] hover:underline"
+              >
+                revocar
+              </button>
+            )}
           </li>
         ))}
       </ul>
 
       {/* Quick award from template */}
+      {!readOnly && (
       <div className="border-t border-[var(--color-border)] pt-3 space-y-2">
         {templates.length === 0 ? (
           <div className="text-[10px] text-[var(--color-muted)] italic font-mono">
@@ -377,6 +415,7 @@ function CollectibleSection({
           />
         )}
       </div>
+      )}
     </div>
   );
 }

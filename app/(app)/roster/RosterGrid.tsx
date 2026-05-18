@@ -11,7 +11,7 @@ type RosterUser = {
   permission: string;
 };
 
-const PERMS = ["ALL", "AUTHORIZED", "LICENSED", "CERTIFICATED", "ADMIN"] as const;
+const PERMS = ["ALL", "AUTHORIZED", "LICENSED", "OFFICER", "ADMIN"] as const;
 
 export function RosterGrid({ users }: { users: RosterUser[] }) {
   const [q, setQ] = useState("");
@@ -78,7 +78,7 @@ function UserCard({ u, index }: { u: RosterUser; index: number }) {
   const tagColor =
     u.permission === "ADMIN"
       ? "var(--color-danger)"
-      : u.permission === "CERTIFICATED"
+      : u.permission === "OFFICER"
         ? "var(--color-amber)"
         : u.permission === "LICENSED"
           ? "var(--color-success)"
